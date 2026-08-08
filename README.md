@@ -1,6 +1,6 @@
 # ILoveMusic
 
-> Open-source desktop app for downloading, organizing, and previewing music from SoundCloud & Spotify.
+> Open-source desktop app for downloading, organizing, and previewing music from SoundCloud, Spotify, and Bandcamp.
 
 ILoveMusic is a small indie project built for DJs, music collectors, and people who genuinely love digging through music.
 
@@ -29,7 +29,7 @@ Just:
 - respect the existing structure
 - keep things clean and intentional
 
-Small meaningful contributions are always appreciated.
+Small meaningful contributions are always appreciated. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ---
 
@@ -46,7 +46,7 @@ ILoveMusic is intentionally built to stay:
 This project avoids:
 - unnecessary complexity
 - overengineered abstractions
-- “AI-generated everything” architecture
+- "AI-generated everything" architecture
 - bloated dependencies
 
 The codebase is meant to feel approachable for indie developers and contributors.
@@ -55,21 +55,36 @@ The codebase is meant to feel approachable for indie developers and contributors
 
 ## Stack
 
-- Electron
-- React
-- Vite
-- ffmpeg
-- aubio
-- spotdl
-- music-metadata
+- Electron + React + Vite (desktop app)
+- ffmpeg, aubio (audio processing, BPM detection)
+- spotdl, yt-dlp (downloads)
+- music-metadata, node-id3 (tagging)
+- TypeScript (`packages/engine`, `apps/api`)
+
+---
+
+## Repository structure
+
+```
+ILoveMusic/
+├── main.js, preload.js, renderer/   # The desktop app
+├── packages/engine/                  # Shared download/BPM/metadata engine (TypeScript)
+├── apps/api/                         # Companion job-based download API — local-only, unreleased
+└── docs/                             # Technical notes (docs/archive/ = historical, unmaintained)
+```
+
+`packages/engine` holds the actual download/processing logic (Spotify, SoundCloud, Bandcamp; BPM and key detection; metadata/artwork embedding) as a shared TypeScript package, used by the desktop app.
+
+`apps/api` is a small companion service that exposes the same engine as a job-based HTTP API (Fastify + a queue worker) for running downloads outside of Electron. It's a local development project right now — not deployed anywhere, no public instance — built as an exploration of running the engine standalone. See [apps/api/README.md](apps/api/README.md) if you want to run it yourself.
+
+See [CLAUDE.md](CLAUDE.md) for a deeper technical walkthrough of how each source (Spotify/SoundCloud/Bandcamp) actually works — they're less similar than they look.
 
 ---
 
 ## Features
 
-- SoundCloud support
-- Spotify support
-- 320kbps downloads
+- SoundCloud, Spotify, and Bandcamp support
+- 320kbps downloads (Spotify, via spotdl)
 - Automatic BPM detection
 - Artwork embedding
 - Metadata editing
@@ -82,7 +97,18 @@ The codebase is meant to feel approachable for indie developers and contributors
 
 ## Development
 
-bash git clone https://github.com/0xRipo/ILoveMusic.git  cd ILoveMusic  npm install npm install --prefix renderer  npm run dev 
+```bash
+git clone git@github.com:riporipo223/iam-ilovemusic.git
+cd iam-ilovemusic
+
+npm install                     # root workspace + packages/engine + apps/api
+npm install --prefix renderer   # renderer has its own lockfile
+
+cp .env.example .env            # add your Spotify Client ID/Secret
+npm run dev
+```
+
+External tools needed: `ffmpeg`, `aubio`, `spotdl` (Python), `yt-dlp`.
 
 ---
 
@@ -98,7 +124,7 @@ Before opening a PR:
 
 This is an evolving indie project, not a corporate framework.
 
-Good ideas are always welcome.
+Good ideas are always welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for the full guidelines.
 
 ---
 
@@ -107,9 +133,8 @@ Good ideas are always welcome.
 Planned ideas include:
 
 - Rekordbox export
-- Playlist management
+- Playlist/album downloads (currently single-track only)
 - Better waveform visualization
-- Advanced key detection
 - Duplicate detection
 - Better library organization tools
 
@@ -123,5 +148,5 @@ MIT
 
 ## Links
 
-- Repository: https://github.com/0xRipo/ILoveMusic
-- Issues: https://github.com/0xRipo/ILoveMusic/issues
+- Repository: https://github.com/riporipo223/iam-ilovemusic
+- Issues: https://github.com/riporipo223/iam-ilovemusic/issues

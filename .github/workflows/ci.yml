@@ -1,0 +1,61 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  engine-and-api:
+    name: Engine + API (typecheck & test)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build packages/engine
+        run: npm run build --workspace @ilovemusic/engine
+
+      - name: Typecheck packages/engine
+        run: npm run typecheck --workspace @ilovemusic/engine
+
+      - name: Test packages/engine
+        run: npm test --workspace @ilovemusic/engine
+
+      - name: Typecheck apps/api
+        run: npm run typecheck --workspace @ilovemusic/api
+
+      - name: Test apps/api
+        run: npm test --workspace @ilovemusic/api
+
+  renderer:
+    name: Renderer (lint & build)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: renderer/package-lock.json
+
+      - name: Install dependencies
+        working-directory: renderer
+        run: npm ci
+
+      - name: Lint
+        working-directory: renderer
+        run: npm run lint
+
+      - name: Build
+        working-directory: renderer
+        run: npm run build

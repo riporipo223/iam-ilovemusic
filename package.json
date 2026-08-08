@@ -5,12 +5,20 @@
     "author": "CactusDomain",
     "main": "main.js",
     "private": true,
+    "engines": {
+        "node": ">=20"
+    },
+    "workspaces": [
+        "packages/*",
+        "apps/api"
+    ],
     "scripts": {
-        "dev": "concurrently \"npm run dev --prefix renderer\" \"electron .\"",
-        "build": "npm run build --prefix renderer && electron-builder",
-        "build:mac": "npm run build --prefix renderer && electron-builder --mac",
-        "build:win": "npm run build --prefix renderer && electron-builder --win",
-        "build:linux": "npm run build --prefix renderer && electron-builder --linux"
+        "dev": "npm run build --workspace @ilovemusic/engine && concurrently \"npm run dev --prefix renderer\" \"electron .\"",
+        "build": "npm run build --workspace @ilovemusic/engine && npm run build --prefix renderer && electron-builder",
+        "build:mac": "npm run build --workspace @ilovemusic/engine && npm run build --prefix renderer && electron-builder --mac",
+        "build:win": "npm run build --workspace @ilovemusic/engine && npm run build --prefix renderer && electron-builder --win",
+        "build:linux": "npm run build --workspace @ilovemusic/engine && npm run build --prefix renderer && electron-builder --linux",
+        "test": "npm run test --workspace @ilovemusic/engine && npm run test --workspace @ilovemusic/api"
     },
     "devDependencies": {
         "concurrently": "^8.2.2",

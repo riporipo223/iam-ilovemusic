@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [Unreleased]
+
+### 🏗️ Architecture
+
+- **Extracted `packages/engine`** — the download/BPM-key-detection/metadata-embedding logic (previously all inline in `main.js`) is now a shared, platform-agnostic TypeScript package. The desktop app's Spotify flow now runs through it; SoundCloud/Bandcamp desktop flows still run the original inline `main.js` code (not yet migrated).
+- **Added `apps/api`** — a companion job-based download API (Fastify + BullMQ worker + Postgres + R2) that runs the same engine outside Electron. Local development only; not deployed anywhere. Each API caller brings their own Spotify Developer App credentials (BYOK, AES-256-GCM encrypted at rest) rather than the platform holding a shared one — Spotify's Developer Mode restrictions (Premium-owner requirement, low user caps) make a shared credential impractical for anything beyond a handful of users.
+- **Generalized SoundCloud/Bandcamp downloading** — confirmed (not assumed) that the original SoundCloud handler and Bandcamp handling ran identical code in `main.js`; `packages/engine` reflects that with one shared implementation (`downloader/ytdlp-track.ts`) instead of duplicating it per source.
+- Fixed a concurrency bug carried over from the original artwork-fallback code: a `process.chdir()` call that's harmless in Electron (one job at a time) but a real race condition under concurrent job processing. Replaced with an absolute output path.
+- Added a URL-shape guard rejecting Bandcamp album/playlist URLs before they reach a worker — the original code had no such distinction (routing was done by which button a user clicked in the desktop UI, not by parsing the URL), which would otherwise let yt-dlp attempt to download an entire album into a single track's expected output file.
+
+### 📖 Documentation
+
+- Reorganized historical docs (~20 files) out of the repo root into `docs/archive/` (kept for reference, explicitly marked unmaintained); current technical notes moved to `docs/`.
+- Rewrote `CLAUDE.md` to describe the current architecture instead of the pre-refactor single-process app.
+- Removed obsolete root-level ad-hoc scripts (`test-spotify.js`, `test-spotify-fixed.js`, `test-spotdl.sh`) — superseded by the `packages/engine`/`apps/api` test suites.
+
+### 🧪 Testing
+
+- Added vitest suites for `packages/engine` and `apps/api` (job creation/validation, per-source credential-gating scoped correctly, BPM/key/artwork fallback tiers, and a concurrency test that runs two jobs in parallel to catch the chdir-style race condition above).
+
+---
+
 ## [0.2.0] - 2026-06-12
 
 ### 🎉 Major Features Added
@@ -209,7 +231,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution guidelines.
 
 ## Support
 
-- **Issues**: [GitHub Issues](https://github.com/0xRipo/ILoveMusic/issues)
+- **Issues**: [GitHub Issues](https://github.com/riporipo223/iam-ilovemusic/issues)
 - **Documentation**: See README.md and related docs
 - **Contact**: [@cactusdomain](https://www.instagram.com/cactusdomain/)
 

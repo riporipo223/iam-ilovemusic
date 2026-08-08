@@ -164,13 +164,19 @@ const result = await window.electron.featureAction(arg);
 
 The audio processing flow is:
 
-1. **Download** - `soundcloud-downloader` fetches track
+1. **Download** - via yt-dlp (SoundCloud/Bandcamp) or spotdl with a yt-dlp fallback (Spotify)
 2. **Metadata Extraction** - `music-metadata` reads existing tags
 3. **BPM Detection** - `aubio` analyzes tempo (via ffmpeg conversion)
 4. **Metadata Writing** - `ffmpeg` embeds metadata and artwork
 5. **Fallback** - `node-id3` for MP3 if ffmpeg fails
 
 Do not modify this pipeline without understanding each step.
+
+### `packages/engine` and `apps/api`
+
+The download/BPM/metadata logic above is implemented once, in `packages/engine`, and consumed by both `main.js` (Spotify flow only, so far — SoundCloud/Bandcamp still run the original inline `main.js` implementation) and `apps/api` (a separate, unreleased, local-only companion API service; see `apps/api/README.md`).
+
+If you're changing shared logic in `packages/engine`, remember it has **no Electron APIs available** (no `app.getPath()`, no IPC) — it has to stay usable from a plain Node process too. The Electron security model above (context isolation, no `nodeIntegration`, preload bridge) applies to `main.js`/`preload.js`/`renderer/`; it doesn't apply to `packages/engine` or `apps/api`, which aren't renderer-facing at all, but their own boundaries still matter — e.g. `apps/api` never handles a user's Spotify credentials in plaintext outside of the moment it needs to call Spotify's API (see its README's security notes).
 
 ---
 

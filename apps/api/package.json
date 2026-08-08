@@ -1,0 +1,38 @@
+{
+  "name": "@ilovemusic/api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "commonjs",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "worker:dev": "tsx watch src/worker.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/server.js",
+    "worker": "node dist/worker.js",
+    "migrate": "tsx src/db/migrate.ts",
+    "create-api-key": "tsx scripts/create-api-key.ts",
+    "verify-infra": "tsx scripts/verify-infra.ts",
+    "verify:e2e": "tsx scripts/verify-e2e.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.723.0",
+    "@aws-sdk/s3-request-presigner": "^3.723.0",
+    "@fastify/rate-limit": "^10.2.1",
+    "@ilovemusic/engine": "*",
+    "bullmq": "^5.34.6",
+    "dotenv": "^17.4.2",
+    "fastify": "^5.2.1",
+    "ioredis": "^5.4.2",
+    "pg": "^8.13.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.5",
+    "@types/pg": "^8.11.10",
+    "pino-pretty": "^13.0.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3",
+    "vitest": "^2.1.8"
+  }
+}
