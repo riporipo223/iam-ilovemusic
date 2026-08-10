@@ -1,0 +1,63 @@
+# Standalone (no build --target needed) equivalent of the `worker` stage in
+# ./Dockerfile. Exists specifically for platforms whose build config can't
+# select a multi-stage target — confirmed Render's Blueprint spec has no
+# such field (no `dockerTarget` or equivalent as of this writing). If your
+# platform DOES support `docker build --target`, prefer the combined
+# ./Dockerfile instead — this file duplicates its early stages, so keep the
+# two in sync if you change deps/build steps.
+#
+# Build from the MONOREPO ROOT (apps/api depends on the @ilovemusic/engine
+# workspace package, which needs the root package.json/lockfile to resolve):
+#
+#   docker build -f apps/api/Dockerfile.worker -t ilovemusic-api-worker .
+#
+# This is the only image that runs packages/engine's actual download
+# pipeline, so it's the only one carrying the heavy CLI/Python toolchain.
+
+FROM node:22-bookworm-slim AS deps
+WORKDIR /app
+COPY package.json package-lock.json ./
+COPY packages/engine/package.json packages/engine/package.json
+COPY apps/api/package.json apps/api/package.json
+RUN npm ci
+
+FROM deps AS build
+COPY packages/engine packages/engine
+COPY apps/api apps/api
+RUN npm run build --workspace @ilovemusic/engine \
+ && npm run build --workspace @ilovemusic/api \
+ && npm prune --omit=dev
+
+FROM node:22-bookworm-slim AS worker
+WORKDIR /app
+ENV NODE_ENV=production
+COPY --from=build /app/node_modules ./node_modules
+COPY --from=build /app/package.json ./package.json
+COPY --from=build /app/packages/engine/dist ./packages/engine/dist
+COPY --from=build /app/packages/engine/scripts ./packages/engine/scripts
+COPY --from=build /app/packages/engine/package.json ./packages/engine/package.json
+COPY --from=build /app/apps/api/dist ./apps/api/dist
+COPY --from=build /app/apps/api/package.json ./apps/api/package.json
+
+# ffmpeg (audio conversion/tagging) + aubio-tools (BPM CLI) from apt;
+# python3 + venv for spotdl/yt-dlp/librosa (all installed into an isolated
+# venv, not system python, to avoid apt/pip conflicts on Debian).
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      ffmpeg \
+      aubio-tools \
+      python3 \
+      python3-venv \
+      python3-pip \
+    && rm -rf /var/lib/apt/lists/* \
+    && python3 -m venv /opt/venv
+
+# venv bin dir first on PATH so bare `python3`/`spotdl`/`yt-dlp` all resolve
+# to it — matches how packages/engine/src/binaries.ts falls back to a bare
+# command name via PATH when no explicit *_PATH env var is set. No
+# SPOTDL_PATH/PYTHON_PATH overrides needed as a result.
+ENV PATH="/opt/venv/bin:$PATH"
+
+RUN pip install --no-cache-dir spotdl yt-dlp \
+ && pip install --no-cache-dir -r /app/packages/engine/scripts/requirements.txt
+
+CMD ["node", "apps/api/dist/worker.js"]

@@ -1,0 +1,110 @@
+# Render Blueprint for apps/api. Defines the same shape documented in
+# apps/api/docker-compose.prod.yml (source of truth for "what services does
+# this need") — this file is Render's own IaC format for actually creating
+# them. Applying this does NOT run any migration and does NOT deploy on its
+# own without you providing the `sync: false` secrets first — see
+# apps/api/DEPLOYMENT.md's "Deploying to Render" section for the exact
+# manual steps.
+#
+# KNOWN LIMITATION (confirmed against Render's Blueprint docs, not assumed):
+# Render's Blueprint spec has no field to select a Docker multi-stage build
+# target (no `dockerTarget` or equivalent). apps/api/Dockerfile defines both
+# `server` and `worker` as targets in one file for local use
+# (`docker build --target worker ...`, already confirmed working locally),
+# but Render can only build a Dockerfile's FINAL stage. So the two services
+# below point at apps/api/Dockerfile.server and apps/api/Dockerfile.worker
+# instead — standalone, target-less duplicates of the same two stages. Keep
+# all three Dockerfiles in sync if you change deps/build steps.
+#
+# ANOTHER KNOWN LIMITATION: env var groups (envVarGroups) can't contain
+# `sync: false` secrets, so CREDENTIALS_ENCRYPTION_KEY can't be entered once
+# and shared — Render will prompt for it separately for `server` and
+# `worker` below. It MUST be the identical value both times (it's used to
+# encrypt/decrypt the same data from either process) — see DEPLOYMENT.md.
+
+databases:
+  - name: ilovemusic-postgres
+    region: singapore
+    plan: basic-1gb # verify this plan slug in the Render dashboard/blueprint preview before applying — Render's Postgres plan names have changed over time and this wasn't provisioned to confirm it live
+
+services:
+  - type: keyvalue
+    name: ilovemusic-redis
+    region: singapore
+    plan: starter
+    ipAllowList: [] # private to other Render services in this account by default
+
+  - type: web
+    name: ilovemusic-api-server
+    runtime: docker
+    dockerfilePath: ./apps/api/Dockerfile.server
+    dockerContext: .
+    region: singapore
+    plan: starter # server does no CLI/subprocess work — Fastify + DB/Redis calls only, lightweight
+    healthCheckPath: /health
+    envVars:
+      - key: PORT
+        value: 3000
+      - key: HOST
+        value: 0.0.0.0
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        fromDatabase:
+          name: ilovemusic-postgres
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          name: ilovemusic-redis
+          type: keyvalue
+          property: connectionString
+      - key: CREDENTIALS_ENCRYPTION_KEY
+        sync: false # MUST match the value entered for ilovemusic-api-worker below — see DEPLOYMENT.md
+      - key: R2_ENDPOINT
+        sync: false
+      - key: R2_ACCESS_KEY_ID
+        sync: false
+      - key: R2_SECRET_ACCESS_KEY
+        sync: false
+      - key: R2_BUCKET
+        value: ilovemusic-downloads # not secret (see .env.example's [PUBLIC] audit) — change if your bucket is named differently
+      - key: RATE_LIMIT_MAX
+        value: 20
+      - key: RATE_LIMIT_WINDOW
+        value: 1 minute
+      - key: DOWNLOAD_URL_TTL_SECONDS
+        value: 3600
+
+  - type: worker
+    name: ilovemusic-api-worker
+    runtime: docker
+    dockerfilePath: ./apps/api/Dockerfile.worker
+    dockerContext: .
+    region: singapore
+    plan: standard # ffmpeg + aubio + spotdl (spawns yt-dlp) + librosa/numpy can run concurrently (WORKER_CONCURRENCY) — see DEPLOYMENT.md sizing notes on why `starter`'s 512MB is a real OOM risk here
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        fromDatabase:
+          name: ilovemusic-postgres
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          name: ilovemusic-redis
+          type: keyvalue
+          property: connectionString
+      - key: CREDENTIALS_ENCRYPTION_KEY
+        sync: false # MUST match the value entered for ilovemusic-api-server above — see DEPLOYMENT.md
+      - key: R2_ENDPOINT
+        sync: false
+      - key: R2_ACCESS_KEY_ID
+        sync: false
+      - key: R2_SECRET_ACCESS_KEY
+        sync: false
+      - key: R2_BUCKET
+        value: ilovemusic-downloads
+      - key: DOWNLOAD_URL_TTL_SECONDS
+        value: 3600
+      - key: WORKER_CONCURRENCY
+        value: 2
