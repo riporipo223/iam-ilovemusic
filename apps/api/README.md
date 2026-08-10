@@ -1,8 +1,11 @@
 # @ilovemusic/api
 
-Public download API. Phase 1: Spotify (BYOK). Phase 2: SoundCloud (no
-credentials — yt-dlp based, not an authenticated API). Bandcamp not
-implemented yet. See the repo root for the full architecture context.
+Public download API. Spotify (BYOK), SoundCloud, and Bandcamp are all
+implemented and live-verified end-to-end. Bandcamp album/playlist URLs are
+rejected — track URLs only. See the repo root (`CLAUDE.md`) for the full
+architecture context, and [DEPLOYMENT.md](DEPLOYMENT.md) for running this
+in production (Docker images, env vars, migrations, platform trade-offs).
+This service itself is not deployed anywhere yet — local development only.
 
 ## Manual end-to-end verification
 

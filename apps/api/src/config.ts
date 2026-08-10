@@ -19,7 +19,11 @@ export const config = {
   host: process.env.HOST ?? '0.0.0.0',
 
   databaseUrl: process.env.DATABASE_URL ?? '',
-  redisUrl: process.env.REDIS_URL ?? 'redis://localhost:6379',
+  // No silent localhost fallback — required in assertRuntimeConfig() below.
+  // An unset REDIS_URL in production used to fail quietly by trying (and
+  // failing) to reach a Redis that was never going to exist on that host,
+  // instead of refusing to boot with a clear message.
+  redisUrl: process.env.REDIS_URL ?? '',
 
   // BYOK: each API consumer supplies their own Spotify Developer App
   // credentials (see routes/spotifyCredentials.ts) — the platform no longer
@@ -48,7 +52,19 @@ export const config = {
   downloadUrlTtlSeconds: Number(process.env.DOWNLOAD_URL_TTL_SECONDS ?? 3600),
 };
 
+/**
+ * Called once at boot (server.ts and worker.ts). Fails loudly and
+ * immediately when a required var is missing, rather than letting the
+ * process start and fail confusingly later — e.g. R2 vars used to default
+ * to empty strings, so a misconfigured deployment would boot fine and only
+ * error the first time a job tried to upload a result.
+ */
 export function assertRuntimeConfig() {
   required('DATABASE_URL');
+  required('REDIS_URL');
   required('CREDENTIALS_ENCRYPTION_KEY');
+  required('R2_ENDPOINT');
+  required('R2_ACCESS_KEY_ID');
+  required('R2_SECRET_ACCESS_KEY');
+  required('R2_BUCKET');
 }

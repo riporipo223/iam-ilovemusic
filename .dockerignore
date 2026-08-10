@@ -1,0 +1,37 @@
+# Build context is the monorepo root (apps/api's Dockerfile is built with
+# -f apps/api/Dockerfile from the root) — this applies repo-wide.
+
+node_modules
+**/node_modules
+dist
+**/dist
+
+# Never bake local secrets into an image layer
+.env
+.env.local
+.env.*.local
+**/.env
+**/.env.local
+
+.git
+.github
+
+# Desktop app + renderer aren't part of any apps/api image
+renderer
+build
+main.js
+preload.js
+electron-builder.yml
+
+# Docs, not needed in the image
+docs
+"md files"
+*.md
+
+# Local dev/test artifacts
+.venv
+**/.venv
+__pycache__
+*.pyc
+.DS_Store
+*.log

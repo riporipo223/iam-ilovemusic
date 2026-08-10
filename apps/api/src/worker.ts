@@ -163,4 +163,27 @@ if (require.main === module) {
   worker.on('completed', (job) => console.log(`Job ${job.id} completed`));
   worker.on('failed', (job, err) => console.error(`Job ${job?.id} failed:`, err.message));
   console.log('Download worker started.');
+
+  // Container platforms send SIGTERM on redeploy/scale-down. BullMQ's
+  // Worker.close() stops pulling new jobs but lets any job currently being
+  // processed finish first — exactly what we want, since killing a job
+  // mid-download would leave a jobs row stuck in "processing" until BullMQ's
+  // lock expires and it's retried from scratch. Don't call process.exit()
+  // until close() resolves.
+  let shuttingDown = false;
+  const shutdown = async (signal: NodeJS.Signals) => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    console.log(`${signal} received — waiting for the active job (if any) to finish before shutting down...`);
+    try {
+      await worker.close();
+      console.log('Worker closed cleanly.');
+      process.exit(0);
+    } catch (err) {
+      console.error('Error during worker shutdown:', err);
+      process.exit(1);
+    }
+  };
+  process.on('SIGTERM', () => void shutdown('SIGTERM'));
+  process.on('SIGINT', () => void shutdown('SIGINT'));
 }

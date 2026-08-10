@@ -33,6 +33,27 @@ async function main() {
   assertRuntimeConfig();
   const app = buildServer();
   await app.listen({ port: config.port, host: config.host });
+
+  // Container platforms send SIGTERM on redeploy/scale-down and expect the
+  // process to stop accepting new connections, finish in-flight requests,
+  // then exit — not die mid-request. app.close() does exactly that
+  // (Fastify waits for open connections/requests to drain).
+  let shuttingDown = false;
+  const shutdown = async (signal: NodeJS.Signals) => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    app.log.info(`${signal} received, closing server...`);
+    try {
+      await app.close();
+      app.log.info('Server closed cleanly.');
+      process.exit(0);
+    } catch (err) {
+      app.log.error(err, 'Error during shutdown');
+      process.exit(1);
+    }
+  };
+  process.on('SIGTERM', () => void shutdown('SIGTERM'));
+  process.on('SIGINT', () => void shutdown('SIGINT'));
 }
 
 if (require.main === module) {

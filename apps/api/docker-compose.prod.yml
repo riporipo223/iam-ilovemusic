@@ -1,0 +1,62 @@
+# Reference / documentation only — NOT meant to be run as-is in production.
+#
+# This exists to show, structurally, what services make up a production
+# deployment and which env vars each one needs — not to self-host Postgres
+# and Redis in containers next to the app. In production those should be
+# managed services (Neon for Postgres, Upstash/Redis Cloud/etc for Redis) —
+# self-hosted stateful containers next to a stateless app deployment lose
+# your data on redeploy/host loss unless you've separately set up persistent
+# volumes, backups, and failover, which is a lot to take on versus a managed
+# service that already does it. See apps/api/DEPLOYMENT.md for the platform
+# comparison and full env var reference.
+#
+# If you DO want to self-host Postgres/Redis for a small/personal deployment
+# anyway, `docker-compose.yml` (the local dev one, one directory up from
+# here — same file) already has both; add volumes and point these at it.
+
+services:
+  server:
+    build:
+      context: ../..
+      dockerfile: apps/api/Dockerfile
+      target: server
+    ports:
+      - '3000:3000'
+    environment:
+      - PORT=3000
+      - HOST=0.0.0.0
+      - NODE_ENV=production
+      - DATABASE_URL   # managed Postgres, e.g. Neon
+      - REDIS_URL      # managed Redis, e.g. Upstash
+      - CREDENTIALS_ENCRYPTION_KEY
+      - R2_ENDPOINT
+      - R2_ACCESS_KEY_ID
+      - R2_SECRET_ACCESS_KEY
+      - R2_BUCKET
+      - RATE_LIMIT_MAX
+      - RATE_LIMIT_WINDOW
+      - DOWNLOAD_URL_TTL_SECONDS
+    healthcheck:
+      test: ['CMD', 'node', '-e', "fetch('http://localhost:3000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  worker:
+    build:
+      context: ../..
+      dockerfile: apps/api/Dockerfile
+      target: worker
+    # No ports — the worker has no HTTP server, it only consumes the queue.
+    environment:
+      - NODE_ENV=production
+      - DATABASE_URL
+      - REDIS_URL
+      - CREDENTIALS_ENCRYPTION_KEY
+      - R2_ENDPOINT
+      - R2_ACCESS_KEY_ID
+      - R2_SECRET_ACCESS_KEY
+      - R2_BUCKET
+      - WORKER_CONCURRENCY
+      - WORK_DIR   # see DEPLOYMENT.md — mount a real volume if the platform's
+                   # default /tmp size is small relative to concurrent job sizes

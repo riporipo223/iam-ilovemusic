@@ -10,6 +10,7 @@
     "start": "node dist/server.js",
     "worker": "node dist/worker.js",
     "migrate": "tsx src/db/migrate.ts",
+    "migrate:prod": "node dist/db/migrate.js",
     "create-api-key": "tsx scripts/create-api-key.ts",
     "verify-infra": "tsx scripts/verify-infra.ts",
     "verify:e2e": "tsx scripts/verify-e2e.ts",
