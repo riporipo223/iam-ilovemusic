@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  NOT CURRENTLY IN USE. This is the *named tunnel* variant — it needs a
+  domain on Cloudflare, which isn't set up right now. The active plist is
+  ../com.ilovemusic.cloudflared.plist (quick tunnel — no domain/login
+  needed). See DEPLOYMENT.md's "Self-Hosting via Cloudflare Tunnel"
+  section for when to switch back to this one.
+
+  To activate later: rename this file to com.ilovemusic.cloudflared.plist
+  (replacing the quick-tunnel one), and rename
+  ../cloudflared/config.named-tunnel.yml.example back to
+  ../cloudflared/config.yml (filling in a real <TUNNEL_ID> first).
+
+  Everything below this point still describes the named-tunnel setup
+  accurately; only its current activation status has changed.
+
+  Runs the Cloudflare Tunnel as a macOS user LaunchAgent, so the API stays
+  publicly reachable across reboots without you opening a terminal.
+
+  Requires cloudflared installed and a tunnel already created (see
+  ../cloudflared/config.named-tunnel.yml.example's header comment, or
+  DEPLOYMENT.md) — this plist doesn't do either of those, it only keeps an
+  already-configured tunnel running.
+
+  The cloudflared path below (/opt/homebrew/bin) matches this machine's
+  actual Homebrew prefix (Apple Silicon default) — confirmed via `which
+  cloudflared` after install, not guessed. Re-verify if you're setting
+  this up on a different Mac.
+
+  Install / reload: same commands as the other plists, substituting this
+  filename.
+
+  Logs: ~/Library/Logs/ilovemusic-cloudflared.log
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.ilovemusic.cloudflared</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/opt/homebrew/bin/cloudflared</string>
+    <string>tunnel</string>
+    <string>--config</string>
+    <string>/Users/ripo/2. PROJECT/ILoveMusic/apps/api/cloudflared/config.named-tunnel.yml.example</string>
+    <string>run</string>
+  </array>
+
+  <key>RunAtLoad</key>
+  <true/>
+
+  <key>KeepAlive</key>
+  <true/>
+  <key>ThrottleInterval</key>
+  <integer>10</integer>
+
+  <key>StandardOutPath</key>
+  <string>/Users/ripo/Library/Logs/ilovemusic-cloudflared.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/ripo/Library/Logs/ilovemusic-cloudflared.log</string>
+</dict>
+</plist>

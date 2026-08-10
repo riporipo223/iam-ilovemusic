@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Runs apps/api's download worker as a macOS user LaunchAgent — same
+  reasoning as com.ilovemusic.api.server.plist (built output not `npm run
+  dev`, absolute paths since launchd has no shell PATH, restarts on exit).
+
+  This process shells out to spotdl/yt-dlp/ffmpeg/aubio/python3 — those
+  need to be on PATH for whatever user launchd runs this as. If you
+  installed them via Homebrew for your own interactive shell, they should
+  already be reachable; packages/engine/src/binaries.ts also checks common
+  Homebrew install paths directly as a fallback, so this is more robust
+  than it might look. If the worker logs "yt-dlp not found" or similar,
+  that's the first thing to check.
+
+  Install / reload: same commands as the server plist, substituting this
+  filename.
+
+  Logs: ~/Library/Logs/ilovemusic-api-worker.log
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.ilovemusic.api.worker</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/ripo/Library/Application Support/Herd/config/nvm/versions/node/v22.0.0/bin/node</string>
+    <string>/Users/ripo/2. PROJECT/ILoveMusic/apps/api/dist/worker.js</string>
+  </array>
+
+  <key>WorkingDirectory</key>
+  <string>/Users/ripo/2. PROJECT/ILoveMusic/apps/api</string>
+
+  <key>RunAtLoad</key>
+  <true/>
+
+  <key>KeepAlive</key>
+  <true/>
+  <key>ThrottleInterval</key>
+  <integer>10</integer>
+
+  <key>StandardOutPath</key>
+  <string>/Users/ripo/Library/Logs/ilovemusic-api-worker.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/ripo/Library/Logs/ilovemusic-api-worker.log</string>
+</dict>
+</plist>

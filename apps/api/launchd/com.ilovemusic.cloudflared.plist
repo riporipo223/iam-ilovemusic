@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Runs a Cloudflare QUICK Tunnel as a macOS user LaunchAgent — the
+  currently-active setup, chosen because no domain is registered on
+  Cloudflare yet. No `cloudflared tunnel login`, no `tunnel create`, no
+  config.yml — just `cloudflared tunnel --url <local-address>`. Cloudflare
+  hands back a random https://<words>-<words>.trycloudflare.com URL on
+  every connect; there is no way to pin it to something stable in this
+  mode. See DEPLOYMENT.md's "Self-Hosting via Cloudflare Tunnel" section
+  for the full trade-off (fine for demos/testing, wrong for anything you'd
+  hardcode into a README or docs).
+
+  Because the URL changes every time this process (re)connects — not just
+  on Mac restart, any crash-triggered restart changes it too — use
+  apps/api/scripts/get-tunnel-url.sh to read the CURRENT URL out of this
+  agent's own log rather than trying to remember or hardcode it anywhere.
+
+  Once you have a domain on Cloudflare and want a stable URL instead, see
+  ../com.ilovemusic.cloudflared.named-tunnel.plist.example — rename it to
+  replace this file (and rename the matching config file back to
+  config.yml) to switch modes.
+
+  Install / reload: same commands as the other plists.
+    launchctl load ~/Library/LaunchAgents/com.ilovemusic.cloudflared.plist
+
+  Logs (also what get-tunnel-url.sh reads):
+    ~/Library/Logs/ilovemusic-cloudflared.log
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.ilovemusic.cloudflared</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/opt/homebrew/bin/cloudflared</string>
+    <string>tunnel</string>
+    <string>--url</string>
+    <string>http://localhost:3000</string>
+  </array>
+
+  <key>RunAtLoad</key>
+  <true/>
+
+  <key>KeepAlive</key>
+  <true/>
+  <key>ThrottleInterval</key>
+  <integer>10</integer>
+
+  <key>StandardOutPath</key>
+  <string>/Users/ripo/Library/Logs/ilovemusic-cloudflared.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/ripo/Library/Logs/ilovemusic-cloudflared.log</string>
+</dict>
+</plist>

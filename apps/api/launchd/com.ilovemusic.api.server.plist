@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Runs apps/api's Fastify server as a macOS user LaunchAgent — starts at
+  login, restarts automatically if it crashes.
+
+  Runs the BUILT output (dist/server.js), not `npm run dev` — this is meant
+  to stay up unattended for days, not for active development. `tsx watch`
+  is for iterating with hot reload at a terminal, not an unattended service;
+  it also means code changes only take effect after you re-run
+  `npm run build --workspace @ilovemusic/api` and reload this agent (see
+  DEPLOYMENT.md).
+
+  launchd does NOT source your shell profile (no .zshrc/.bashrc, no PATH
+  the way an interactive terminal has it) — every path below is absolute
+  for that reason. The `node` path especially: this machine's Node comes
+  from Herd's bundled nvm. If you reinstall Node or change version
+  managers, `which node` again and update ProgramArguments below, or this
+  agent will fail to start with no obvious error beyond the log file.
+
+  Install:
+    mkdir -p ~/Library/LaunchAgents
+    cp com.ilovemusic.api.server.plist ~/Library/LaunchAgents/
+    launchctl load ~/Library/LaunchAgents/com.ilovemusic.api.server.plist
+
+  Reload after a rebuild/config change:
+    launchctl unload ~/Library/LaunchAgents/com.ilovemusic.api.server.plist
+    launchctl load ~/Library/LaunchAgents/com.ilovemusic.api.server.plist
+
+  Logs: ~/Library/Logs/ilovemusic-api-server.log (stdout+stderr)
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.ilovemusic.api.server</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/ripo/Library/Application Support/Herd/config/nvm/versions/node/v22.0.0/bin/node</string>
+    <string>/Users/ripo/2. PROJECT/ILoveMusic/apps/api/dist/server.js</string>
+  </array>
+
+  <!-- dotenv (loaded in src/config.ts) reads .env relative to the process's
+       working directory — this MUST be apps/api/ so it finds apps/api/.env,
+       the one with your real local Postgres/Redis/R2/CREDENTIALS_ENCRYPTION_KEY
+       values (never committed — see apps/api/.env.example for what's needed). -->
+  <key>WorkingDirectory</key>
+  <string>/Users/ripo/2. PROJECT/ILoveMusic/apps/api</string>
+
+  <key>RunAtLoad</key>
+  <true/>
+
+  <!-- Always restart on exit, whether crash or clean exit — this is meant
+       to run continuously. ThrottleInterval stops a fast crash-loop from
+       hammering the machine (10s minimum between restart attempts). -->
+  <key>KeepAlive</key>
+  <true/>
+  <key>ThrottleInterval</key>
+  <integer>10</integer>
+
+  <key>StandardOutPath</key>
+  <string>/Users/ripo/Library/Logs/ilovemusic-api-server.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/ripo/Library/Logs/ilovemusic-api-server.log</string>
+</dict>
+</plist>

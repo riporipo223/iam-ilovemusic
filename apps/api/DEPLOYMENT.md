@@ -71,9 +71,108 @@ Three reasonable fits for "one stateless HTTP service + one worker needing Pytho
 
 A fourth option worth naming even though it's not in the table: a **plain VPS** (Hetzner, DigitalOcean) running the two Docker images directly via `docker-compose.prod.yml` as a *structural reference* (not run as-is — see the comment at the top of that file). Cheapest at small scale, most control, but you own the ops entirely — restarts, log rotation, monitoring, OS patching. Reasonable for a solo/low-traffic deployment; not something to reach for once there's real load or you want to stop thinking about the host.
 
-Whichever you pick, Postgres/Redis should be managed services (Neon, Upstash, Redis Cloud, etc.), not self-hosted containers next to the app — see the note at the top of `docker-compose.prod.yml`.
+Whichever of these you pick, Postgres/Redis should be managed services (Neon, Upstash, Redis Cloud, etc.), not self-hosted containers next to the app — see the note at the top of `docker-compose.prod.yml`.
 
-**Decided: Render.** The rest of this section is specific to it.
+**Current status: none of these three are in use.** Render was evaluated first (config below still exists and works) but ruled out — Render requires a credit card on file to run a Background Worker, even within its otherwise-free tier. **Actually in use right now: self-hosting from home via Cloudflare Tunnel** — no cloud account, no credit card, no monthly cost. See the next section. The Render config is kept because it's genuinely useful later if/when this needs real uptime guarantees — see that section's own note on when self-hosting stops being the right call.
+
+## Self-Hosting via Cloudflare Tunnel
+
+**This is the setup actually in use.** Everything runs on your own Mac — the same processes as local dev (`server`, `worker`, Postgres, Redis) — made reachable from the internet via a Cloudflare Tunnel instead of a cloud deployment. Free, no port forwarding on your router, no credit card. The trade-off is explicit: **this has no SLA. The API is only reachable while your Mac is on, awake, and connected to the internet.** Fine for testing, demos, and a portfolio link; not something to point real users at.
+
+### What's already true, corrected from an earlier assumption
+
+Postgres and Redis for local dev run via **Homebrew (`brew services`), not `docker-compose.yml`** — confirmed by checking this machine directly, not assumed. This is good news, not a gap: `brew services start postgresql@16` and `brew services start redis` already register their own auto-starting `launchd` LaunchAgents (Homebrew does this for you) — `~/Library/LaunchAgents/homebrew.mxcl.postgresql@16.plist` and the Redis equivalent already exist on this machine. **Nothing to set up for these two** — if `brew services list` shows them as `started`, they'll already come back up after a reboot. (Docker *is* installed on this machine too, from building the Render images earlier — but switching Postgres/Redis to Docker now would just be churn for a setup that already auto-starts correctly, so this doc doesn't recommend it.)
+
+What genuinely needs new configuration: the API **server**, the **worker**, and **cloudflared** itself — none of those exist as long-running background services yet.
+
+### 1. Cloudflare Tunnel — Quick Tunnel (currently active; no domain needed)
+
+**In use right now, because no domain is registered on Cloudflare.** Quick Tunnel needs no `cloudflared tunnel login`, no `tunnel create`, no `config.yml` at all — just one CLI flag pointed at the local server. The cost of that simplicity: Cloudflare hands back a **random `https://<random-words>.trycloudflare.com` URL that changes every time the tunnel (re)connects** — not pinnable, not something you register once and forget. See "URL stability trade-offs" below before deciding this is the right mode for what you're using it for.
+
+Setup (run yourself — Claude Code has no access to your Cloudflare account and didn't run any of this):
+
+```bash
+brew install cloudflared
+```
+
+That's it — no login, no account interaction needed for Quick Tunnel mode. The launchd agent (next section) runs `cloudflared tunnel --url http://localhost:3000` directly; there's nothing else to configure.
+
+**If you get a domain on Cloudflare later** and want a stable URL instead: `apps/api/cloudflared/config.named-tunnel.yml.example` and `apps/api/launchd/com.ilovemusic.cloudflared.named-tunnel.plist.example` are the named-tunnel equivalents, kept specifically for this — not deleted, not currently active. To switch: `cloudflared tunnel login` + `cloudflared tunnel create ilovemusic-api` (writes `~/.cloudflared/<tunnel-id>.json`), fill in the real `<TUNNEL_ID>` in the `.example` config and rename it to `config.yml`, then rename the `.example` plist to replace the active `com.ilovemusic.cloudflared.plist` (reload via `launchctl unload`/`load`). Both `.example` files already reflect the same single-port/no-Postgres-Redis-ingress design as the active setup — read their header comments when you get there.
+
+### 2. Reading the current URL — it changes, so don't try to remember it
+
+`apps/api/scripts/get-tunnel-url.sh` reads the tunnel's own log for the most recently announced URL:
+
+```bash
+apps/api/scripts/get-tunnel-url.sh
+# -> https://some-random-words-1234.trycloudflare.com
+```
+
+Run this after every Mac restart, tunnel reconnect, or crash-triggered `KeepAlive` restart — anything that makes the plist below relaunch `cloudflared` assigns a new URL. There is no notification for this; the only way to know is to ask (this script) or watch the log (`tail -f ~/Library/Logs/ilovemusic-cloudflared.log`).
+
+### 3. Auto-start everything via launchd (macOS's equivalent of systemd — this is a Mac, not a Linux server)
+
+Three new LaunchAgents, one each for the server, the worker, and cloudflared — in `apps/api/launchd/`. Read each file's header comment; they explain the reasoning (built output not `npm run dev`, absolute paths since launchd doesn't source your shell profile, `KeepAlive` for auto-restart on crash). The active `com.ilovemusic.cloudflared.plist` runs Quick Tunnel mode (no `--config` flag) — the `.named-tunnel.plist.example` alongside it is the inactive alternative described above.
+
+**Before installing any of them**, build the app once — launchd runs the compiled `dist/`, not `tsx`:
+
+```bash
+npm run build --workspace @ilovemusic/engine
+npm run build --workspace @ilovemusic/api
+```
+
+**Verify the hardcoded paths in each `.plist` actually match this machine** before installing — `node` and `cloudflared`'s paths were confirmed directly on this machine (`which node`, `which cloudflared`), not guessed, but re-check if you're setting this up somewhere else:
+
+```bash
+mkdir -p ~/Library/LaunchAgents ~/Library/Logs
+cp apps/api/launchd/com.ilovemusic.api.server.plist ~/Library/LaunchAgents/
+cp apps/api/launchd/com.ilovemusic.api.worker.plist ~/Library/LaunchAgents/
+cp apps/api/launchd/com.ilovemusic.cloudflared.plist ~/Library/LaunchAgents/
+launchctl load ~/Library/LaunchAgents/com.ilovemusic.api.server.plist
+launchctl load ~/Library/LaunchAgents/com.ilovemusic.api.worker.plist
+launchctl load ~/Library/LaunchAgents/com.ilovemusic.cloudflared.plist
+```
+
+(Only the three active `.plist` files — not the `.named-tunnel.plist.example` one, which isn't meant to be loaded until you've switched modes per the section above.)
+
+Check they're actually running, and watch the logs (`~/Library/Logs/ilovemusic-*.log`) for the first minute:
+
+```bash
+launchctl list | grep ilovemusic
+tail -f ~/Library/Logs/ilovemusic-api-server.log
+apps/api/scripts/get-tunnel-url.sh   # confirm you can see today's URL
+```
+
+After any code change: rebuild, then `launchctl unload` + `launchctl load` the relevant agent (server/worker only — cloudflared doesn't need reloading for app code changes, only if you edit its own config/plist).
+
+### 4. URL stability trade-offs — read this before sharing the URL anywhere
+
+Quick Tunnel's URL instability isn't a minor inconvenience to work around, it's a real fit constraint:
+
+**Fine for**: manual testing against a real public URL, live demos where you paste the current URL to someone while you're both looking at it, one-off end-to-end verification. In all of these you're present at the moment the URL matters, so "it changed since last time" is a non-issue — you just run `get-tunnel-url.sh` right before you need it.
+
+**Not fine for**: anything that references the URL *without you being there to update it* — a link in the GitHub README, a CV/portfolio entry, or (specifically flagged since it's on the roadmap) **GitBook documentation that would reference a fixed API base URL**. Any of these would silently break the next time the tunnel reconnects, with no mechanism to notify whoever's reading that stale link. If/when GitBook docs happen, that's exactly the point to either switch to the named-tunnel setup above (needs a domain) or move to a real platform deployment (`## Deploying to Render`, below) — not to keep using Quick Tunnel and hope the Mac never restarts.
+
+### 5. Security hardening for "exposed from a home network" specifically
+
+Reviewed against the actual current code, not assumed:
+
+- **`/health` doesn't leak internals** — verified directly in `src/routes/health.ts`: it returns only `'ok'`/`'error'` strings per dependency, never the underlying error message or a stack trace. Nothing to change here.
+- **Error responses generally don't leak internals either** — the one place a raw `.message` reaches a client is `PUT /v1/spotify-credentials`, and that's *Spotify's own* rejection reason being relayed back to the caller who submitted those exact credentials (deliberate UX, not an internal leak — they already know what they sent).
+- **IP + timestamp logging already exists** — Fastify's request logger (already configured in `server.ts`) logs `remoteAddress` and a timestamp for every request by default; you've been seeing this in every dev session's console output already. Once running under launchd, this goes to `~/Library/Logs/ilovemusic-api-server.log` instead of a terminal — that log file *is* your access audit trail. Nothing new needed to get IP+timestamp specifically.
+- **Not done, and deliberately out of scope for this pass**: logging *which API key* made each request (only the IP is logged automatically; correlating that to a specific key would mean adding a log line inside `auth.ts`, which is application code, not infra/ops config — flagged here as a real gap worth a future small change, not silently added now).
+- **Rate limiting — recommend tightening the values for this specific scenario**, not the mechanism itself (already sound: per-API-key with an IP fallback, already in place since Fase 1). `RATE_LIMIT_MAX`/`RATE_LIMIT_WINDOW` are env vars, so this is a config change, not a code change. Default is `20` per `1 minute`. For a home-exposed instance without the traffic-absorbing infrastructure a real platform gives you, consider lowering to something like `10` per `1 minute` in this deployment's `.env` — still generous for legitimate use (each request either creates a real download job or checks one job's status), meaningfully more conservative against casual probing from the public internet.
+
+**Read before you do anything else:**
+- **Never add an `ingress` rule for Postgres (5432) or Redis (6379) in `config.yml`, ever, for any reason** — including "just for a minute to debug something." Neither has meaningful auth against a public connection; the entire local dev setup trusts localhost implicitly. If you need to inspect them remotely, tunnel over SSH instead, not through this Cloudflare Tunnel.
+- **Never lower/disable rate limiting "just to test something" and forget to revert it.** If you do this, set a calendar reminder before you touch `.env`, not after.
+
+### Limitations — read this before treating this as more than a demo
+
+- **No uptime guarantee.** The API is unreachable whenever your Mac is off, asleep, restarting, or loses internet — including routine things like a macOS update reboot or closing the lid without a sleep override.
+- **No redundancy.** One Mac, one Postgres, one Redis, one path in. A crashed process comes back via `KeepAlive`; a crashed *machine* does not.
+- **Not built for real traffic.** No load balancing, no horizontal scaling, home upload bandwidth in the loop for every response.
+- **This is fine for what it's for right now** — testing, demos, a portfolio link — and not a reason to over-engineer this setup further. It's a reason to know when to stop using it: once you want something reachable on a schedule other than "whenever my Mac happens to be on," that's the point to revisit the **Deploying to Render** section below (or Fly.io/Railway from the table above) rather than trying to make a home Mac more production-grade than it can reasonably be.
 
 ## Deploying to Render
 
