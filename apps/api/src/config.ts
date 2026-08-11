@@ -32,6 +32,19 @@ export const config = {
   // the database itself.
   credentialsEncryptionKey: process.env.CREDENTIALS_ENCRYPTION_KEY ?? '',
 
+  // NOT BYOK — deliberately separate from the per-consumer credentials
+  // above. These belong to the platform operator (the desktop app's own
+  // developer) and back GET /v1/spotify-metadata specifically: a proxy the
+  // desktop app calls so it never has to hold a Spotify Client Secret
+  // itself (previously bundled locally, which is extractable from a
+  // packaged .dmg's asar). Optional at boot — same reasoning as BYOK
+  // credentials not being required: an operator who hasn't set these up yet
+  // should still be able to run every other endpoint.
+  platformSpotify: {
+    clientId: process.env.PLATFORM_SPOTIFY_CLIENT_ID ?? '',
+    clientSecret: process.env.PLATFORM_SPOTIFY_CLIENT_SECRET ?? '',
+  },
+
   r2: {
     endpoint: process.env.R2_ENDPOINT ?? '',
     accessKeyId: process.env.R2_ACCESS_KEY_ID ?? '',

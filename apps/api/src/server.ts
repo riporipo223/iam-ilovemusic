@@ -5,6 +5,7 @@ import { redisConnection } from './queue/connection';
 import { downloadsRoutes } from './routes/downloads';
 import { healthRoutes } from './routes/health';
 import { spotifyCredentialsRoutes } from './routes/spotifyCredentials';
+import { spotifyMetadataRoutes } from './routes/spotifyMetadata';
 
 export function buildServer() {
   const app = Fastify({
@@ -25,6 +26,7 @@ export function buildServer() {
   app.register(healthRoutes);
   app.register(downloadsRoutes);
   app.register(spotifyCredentialsRoutes);
+  app.register(spotifyMetadataRoutes);
 
   return app;
 }

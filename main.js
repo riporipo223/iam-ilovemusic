@@ -6,17 +6,43 @@ const crypto = require('crypto');
 const { promisify } = require('util');
 const execFileAsync = promisify(execFile);
 
-// Load environment variables from .env file
+// Load environment variables from .env file.
+//
+// Path is resolved explicitly rather than left to dotenv's default (which
+// is path.resolve(process.cwd(), '.env') — relative to the process's
+// CURRENT WORKING DIRECTORY, not this file's location). That default only
+// happens to work under `npm run dev`/`electron .`, where cwd is set to the
+// project root; a packaged app launched via Finder/double-click gets a cwd
+// unrelated to the project (confirmed empirically with
+// scripts/verify-env-loading.js — the exact same dotenv.config() call finds
+// nothing at all once cwd isn't the project root), silently leaving every
+// credential in .env unset. `.env` itself is also never bundled into the
+// packaged app (gitignored, not in electron-builder.yml's files/
+// extraResources — same reasoning as build/bin/'s binaries, see
+// build/bin/README.md), so a packaged build needs its own writable,
+// per-user location outside the app bundle: app.getPath('userData') is the
+// standard Electron pattern for exactly this (survives app updates, was
+// never meant to ship inside a code-signed package). Dev mode keeps reading
+// from the project root, but via __dirname instead of relying on cwd, so it
+// no longer depends on how the process happened to be launched either.
+//
 // (quiet: true suppresses dotenv's console "tip" line, which as of v17.4.x
 // occasionally advertises an unrelated side project of the maintainer's —
 // not something that belongs in this app's console output)
-require('dotenv').config({ quiet: true });
+const dotenvPath = app.isPackaged ? path.join(app.getPath('userData'), '.env') : path.join(__dirname, '.env');
+require('dotenv').config({ path: dotenvPath, quiet: true });
 const https = require('https');
 
-// Spotify API credentials
-const SPOTIFY_CLIENT_ID = process.env.SPOTIFY_CLIENT_ID;
-const SPOTIFY_CLIENT_SECRET = process.env.SPOTIFY_CLIENT_SECRET;
-const spotifyCredentials = { clientId: SPOTIFY_CLIENT_ID, clientSecret: SPOTIFY_CLIENT_SECRET };
+// ILoveMusic API — single-Spotify-track metadata proxy (see
+// fetchSpotifyMetadataViaProxy() below). Deliberately NOT the same as
+// SPOTIFY_CLIENT_ID/SPOTIFY_CLIENT_SECRET further down this file, which are
+// still used directly by getSpotifyToken() for the SoundCloud/Bandcamp
+// BPM/key cross-reference fallback and the Spotify album flow — neither of
+// those changed here. This app no longer holds a Spotify Client Secret for
+// single-track downloads at all; the API server (self-hosted, holds its own
+// platform Spotify credentials) does that lookup instead.
+const ILOVEMUSIC_API_BASE_URL = process.env.ILOVEMUSIC_API_BASE_URL;
+const ILOVEMUSIC_API_KEY = process.env.ILOVEMUSIC_API_KEY;
 
 // Shared download/processing engine (packages/engine) — also consumed by the API server.
 // Point it at the packaged app's bundled binaries dir (same convention the
@@ -666,6 +692,64 @@ function detectUrlSource(url) {
   return 'unknown';
 }
 
+// How long to wait for the API server before giving up — without this,
+// fetch() has no default timeout and an unreachable/stalled server (e.g.
+// this Mac's Cloudflare Tunnel down, or no internet at all) would hang the
+// whole "add track" flow indefinitely instead of surfacing a clear error.
+const SPOTIFY_METADATA_PROXY_TIMEOUT_MS = 15000;
+
+/**
+ * Fetches official Spotify metadata (title/artist/album/artwork/duration)
+ * for a single track via the ILoveMusic API's GET /v1/spotify-metadata
+ * proxy, instead of calling Spotify directly with a locally-held Client
+ * Secret. The server holds its own platform Spotify credentials — this app
+ * never sees them. Base URL and API key both come from env vars (not
+ * hardcoded) so switching from the current Cloudflare Tunnel to a stable
+ * domain later needs no code change.
+ */
+async function fetchSpotifyMetadataViaProxy(spotifyUrl) {
+  if (!ILOVEMUSIC_API_BASE_URL || !ILOVEMUSIC_API_KEY) {
+    throw new Error(
+      'Spotify downloads require ILOVEMUSIC_API_BASE_URL and ILOVEMUSIC_API_KEY to be set in .env — see .env.example.'
+    );
+  }
+
+  const endpoint = `${ILOVEMUSIC_API_BASE_URL.replace(/\/+$/, '')}/v1/spotify-metadata?url=${encodeURIComponent(spotifyUrl)}`;
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), SPOTIFY_METADATA_PROXY_TIMEOUT_MS);
+
+  let response;
+  try {
+    response = await fetch(endpoint, {
+      headers: { 'X-API-Key': ILOVEMUSIC_API_KEY },
+      signal: controller.signal,
+    });
+  } catch (err) {
+    if (err.name === 'AbortError') {
+      throw new Error(
+        `Timed out reaching the ILoveMusic API server at ${ILOVEMUSIC_API_BASE_URL}. Check that it's running and reachable, then try again.`
+      );
+    }
+    throw new Error(`Could not reach the ILoveMusic API server at ${ILOVEMUSIC_API_BASE_URL}: ${err.message}`);
+  } finally {
+    clearTimeout(timeoutId);
+  }
+
+  if (!response.ok) {
+    let errorMessage = `HTTP ${response.status}`;
+    try {
+      const body = await response.json();
+      if (body && body.error) errorMessage = body.error;
+    } catch {
+      // Non-JSON error body — fall back to the bare status above.
+    }
+    throw new Error(`Failed to fetch Spotify metadata from the API server: ${errorMessage}`);
+  }
+
+  return response.json();
+}
+
 /**
  * Process a Spotify track URL end-to-end via the shared engine package
  * (packages/engine). Desktop-specific concerns (userData paths, IPC progress
@@ -677,10 +761,12 @@ async function processSpotifyTrack(url) {
   const outputDir = path.join(app.getPath('userData'), 'tracks');
   const artworkDir = path.join(app.getPath('userData'), 'artwork');
 
+  const metadata = await fetchSpotifyMetadataViaProxy(url);
+
   const track = await engine.processSpotifyTrack(url, {
     outputDir,
     artworkDir,
-    spotify: spotifyCredentials,
+    metadata,
     // Desktop keeps its existing separate 'enrich-track-metadata' IPC round-trip
     // for key detection, so skip the engine's inline python/librosa fallback here.
     detectKeyFallback: false,
@@ -906,64 +992,72 @@ function getYtDlpPath() {
 
 // Helper function to get ffmpeg path
 function getFfmpegPath() {
+  const isWindows = process.platform === 'win32';
+  const exeExtension = isWindows ? '.exe' : '';
+  const binaryName = 'ffmpeg' + exeExtension;
+
   // Check common macOS installation paths first
   const commonPaths = [
     '/opt/homebrew/bin/ffmpeg',
     '/usr/local/bin/ffmpeg',
     '/usr/bin/ffmpeg'
   ];
-  
+
   for (const p of commonPaths) {
     if (fs.existsSync(p)) {
       return p;
     }
   }
-  
+
   // In production, check for bundled ffmpeg
   if (app.isPackaged) {
-    const bundledPath = path.join(process.resourcesPath, 'bin', 'ffmpeg');
+    const bundledPath = path.join(process.resourcesPath, 'bin', binaryName);
     if (fs.existsSync(bundledPath)) {
       return bundledPath;
     }
-    const altPath = path.join(__dirname, '..', 'bin', 'ffmpeg');
+    const altPath = path.join(__dirname, '..', 'bin', binaryName);
     if (fs.existsSync(altPath)) {
       return altPath;
     }
   }
-  
+
   // Last resort - try system PATH
-  return 'ffmpeg';
+  return binaryName;
 }
 
 // Helper function to get aubio path
 function getAubioPath() {
+  const isWindows = process.platform === 'win32';
+  const exeExtension = isWindows ? '.exe' : '';
+  const binaryName = 'aubio' + exeExtension;
+
   // Check common macOS installation paths first
   const commonPaths = [
     '/opt/homebrew/bin/aubio',
     '/usr/local/bin/aubio',
     '/usr/bin/aubio'
   ];
-  
+
   for (const p of commonPaths) {
     if (fs.existsSync(p)) {
       return p;
     }
   }
-  
+
   // In production, check for bundled aubio
   if (app.isPackaged) {
-    const bundledPath = path.join(process.resourcesPath, 'bin', 'aubio');
+    const bundledPath = path.join(process.resourcesPath, 'bin', binaryName);
     if (fs.existsSync(bundledPath)) {
       return bundledPath;
     }
-    const altPath = path.join(__dirname, '..', 'bin', 'aubio');
+    const altPath = path.join(__dirname, '..', 'bin', binaryName);
     if (fs.existsSync(altPath)) {
       return altPath;
     }
   }
-  
+
   // Last resort - try system PATH
-  return 'aubio';
+  return binaryName;
 }
 
 // Helper function to clean SoundCloud URL from unnecessary query parameters

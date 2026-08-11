@@ -33,7 +33,19 @@ export interface ProcessSpotifyTrackOptions {
   outputDir: string;
   /** Directory artwork images are written to (created if missing). */
   artworkDir: string;
-  spotify: SpotifyCredentials;
+  /**
+   * Required unless `metadata` is supplied — used to fetch metadata directly
+   * via the official Spotify Web API (Client Credentials flow).
+   */
+  spotify?: SpotifyCredentials;
+  /**
+   * Pre-fetched track metadata (e.g. from a proxy endpoint that holds its
+   * own Spotify credentials server-side). When supplied, this skips the
+   * internal fetchSpotifyTrackMetadata() call entirely, so no Spotify
+   * credentials are needed on the caller's side at all. Takes priority over
+   * `spotify` if both are somehow provided.
+   */
+  metadata?: SpotifyTrackMetadata;
   /** Used as the on-disk filename stem. Defaults to Date.now(). */
   jobId?: string | number;
   /** Run the python/librosa key detector when the audio file has no embedded key tag. Default true. */
@@ -143,7 +155,14 @@ export async function processSpotifyTrack(
   fs.mkdirSync(options.artworkDir, { recursive: true });
 
   emit('fetching-metadata');
-  const spotifyMetadata: SpotifyTrackMetadata = await fetchSpotifyTrackMetadata(trackId, options.spotify);
+  let spotifyMetadata: SpotifyTrackMetadata;
+  if (options.metadata) {
+    spotifyMetadata = options.metadata;
+  } else if (options.spotify) {
+    spotifyMetadata = await fetchSpotifyTrackMetadata(trackId, options.spotify);
+  } else {
+    throw new Error('processSpotifyTrack requires either `spotify` credentials or pre-fetched `metadata`.');
+  }
 
   const jobId = options.jobId ?? Date.now();
   clearExistingOutputFiles(options.outputDir, jobId);
