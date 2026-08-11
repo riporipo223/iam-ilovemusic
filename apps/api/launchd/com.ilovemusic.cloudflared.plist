@@ -1,31 +1,43 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <!--
-  Runs a Cloudflare QUICK Tunnel as a macOS user LaunchAgent — the
-  currently-active setup, chosen because no domain is registered on
-  Cloudflare yet. No `cloudflared tunnel login`, no `tunnel create`, no
-  config.yml — just `cloudflared tunnel --url <local-address>`. Cloudflare
-  hands back a random https://<words>-<words>.trycloudflare.com URL on
-  every connect; there is no way to pin it to something stable in this
-  mode. See DEPLOYMENT.md's "Self-Hosting via Cloudflare Tunnel" section
-  for the full trade-off (fine for demos/testing, wrong for anything you'd
-  hardcode into a README or docs).
+  ACTIVE — this is the named tunnel variant, self-hosting apps/api at
+  api.madebyripo.sbs (domain on Hostinger, DNS/tunnel routing on
+  Cloudflare). Quick tunnel (random *.trycloudflare.com URL, no domain
+  needed) is now the fallback/emergency option if this one has trouble —
+  see ../cloudflared/config.named-tunnel.yml.example (kept as a
+  template/reference, not loaded) and DEPLOYMENT.md's "Self-Hosting via
+  Cloudflare Tunnel" section
+  for how to switch back to it temporarily.
 
-  Because the URL changes every time this process (re)connects — not just
-  on Mac restart, any crash-triggered restart changes it too — use
-  apps/api/scripts/get-tunnel-url.sh to read the CURRENT URL out of this
-  agent's own log rather than trying to remember or hardcode it anywhere.
+  Points --config at ../cloudflared/config.yml — the filled-in file with
+  the real tunnel ID and hostname, NOT
+  ../cloudflared/config.named-tunnel.yml.example (that's the placeholder
+  template this file's config was originally copied from; pointing here at
+  the .example by mistake is exactly what broke this tunnel once already —
+  cloudflared fails outright with "Tunnel credentials file
+  '.../<TUNNEL_ID>.json' doesn't exist", since that literal string is never
+  a real path).
 
-  Once you have a domain on Cloudflare and want a stable URL instead, see
-  ../com.ilovemusic.cloudflared.named-tunnel.plist.example — rename it to
-  replace this file (and rename the matching config file back to
-  config.yml) to switch modes.
+  Runs the Cloudflare Tunnel as a macOS user LaunchAgent, so the API stays
+  publicly reachable across reboots without you opening a terminal.
 
-  Install / reload: same commands as the other plists.
+  Requires cloudflared installed and the tunnel already created (see
+  ../cloudflared/config.yml's header comment, or DEPLOYMENT.md) — this
+  plist doesn't do either of those, it only keeps an already-configured
+  tunnel running.
+
+  The cloudflared path below (/opt/homebrew/bin) matches this machine's
+  actual Homebrew prefix (Apple Silicon default) — confirmed via `which
+  cloudflared` after install, not guessed. Re-verify if you're setting
+  this up on a different Mac.
+
+  Install / reload:
+    launchctl unload ~/Library/LaunchAgents/com.ilovemusic.cloudflared.plist 2>/dev/null
+    cp apps/api/launchd/com.ilovemusic.cloudflared.plist ~/Library/LaunchAgents/
     launchctl load ~/Library/LaunchAgents/com.ilovemusic.cloudflared.plist
 
-  Logs (also what get-tunnel-url.sh reads):
-    ~/Library/Logs/ilovemusic-cloudflared.log
+  Logs: ~/Library/Logs/ilovemusic-cloudflared.log
 -->
 <plist version="1.0">
 <dict>
@@ -36,8 +48,9 @@
   <array>
     <string>/opt/homebrew/bin/cloudflared</string>
     <string>tunnel</string>
-    <string>--url</string>
-    <string>http://localhost:3000</string>
+    <string>--config</string>
+    <string>/Users/ripo/2. PROJECT/ILoveMusic/apps/api/cloudflared/config.yml</string>
+    <string>run</string>
   </array>
 
   <key>RunAtLoad</key>

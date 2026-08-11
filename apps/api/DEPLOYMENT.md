@@ -85,34 +85,50 @@ Postgres and Redis for local dev run via **Homebrew (`brew services`), not `dock
 
 What genuinely needs new configuration: the API **server**, the **worker**, and **cloudflared** itself — none of those exist as long-running background services yet.
 
-### 1. Cloudflare Tunnel — Quick Tunnel (currently active; no domain needed)
+### 1. Domain & DNS — madebyripo.sbs, migrated from Vercel to Cloudflare
 
-**In use right now, because no domain is registered on Cloudflare.** Quick Tunnel needs no `cloudflared tunnel login`, no `tunnel create`, no `config.yml` at all — just one CLI flag pointed at the local server. The cost of that simplicity: Cloudflare hands back a **random `https://<random-words>.trycloudflare.com` URL that changes every time the tunnel (re)connects** — not pinnable, not something you register once and forget. See "URL stability trade-offs" below before deciding this is the right mode for what you're using it for.
+**Named tunnel is now the active method**, using a real domain instead of a random `trycloudflare.com` URL. This section explains how that domain got set up, in plain terms — don't assume you already know DNS.
 
-Setup (run yourself — Claude Code has no access to your Cloudflare account and didn't run any of this):
+- **Domain**: `madebyripo.sbs`, registered on **Hostinger**. Registration (who owns the domain name, billed yearly) and DNS hosting (who answers "what IP/record does this hostname point to") are separate concerns — a domain can be registered at one company and have its DNS managed by a completely different one. That's exactly what happened here.
+- **API subdomain**: `api.madebyripo.sbs` — this is what the tunnel is actually routed to, not the bare root domain.
+- **Nameserver migration, Vercel → Cloudflare**: A domain's **nameservers** are what determine *which provider is authoritative for its DNS* — i.e., who the rest of the internet asks "what does this hostname resolve to?" Changing nameservers moves DNS *management* from one provider to another; it does **not** move the domain registration itself (Hostinger stays the registrar either way). This domain's nameservers were changed from Vercel's (`ns1.vercel-dns.com`, `ns2.vercel-dns.com`) to Cloudflare's (`john.ns.cloudflare.com`, `kia.ns.cloudflare.com`) specifically so Cloudflare could issue DNS records and a certificate for it. The domain was idle on Vercel beforehand — no live project depended on it, so this wasn't a disruptive cutover.
+- **DNS propagation is not instant.** Once nameservers are changed at the registrar, that change has to spread to every DNS resolver on the internet that might have cached the old answer — anywhere from a few minutes to **up to 24 hours**, governed by TTL (time-to-live) values cached at each resolver. This is why `dig NS madebyripo.sbs` can keep showing the *old* nameservers for a while after the change was made at Hostinger — that's expected, not a sign anything is broken. Re-check periodically rather than assuming a single failed lookup means the migration didn't take.
+- **SSL only works after the zone is Active.** Once Cloudflare's dashboard shows the zone status as **Active** (meaning it's confirmed itself as authoritative — i.e., the nameserver change has propagated enough for Cloudflare to see it), it automatically issues a **Universal SSL** certificate covering the root domain and first-level subdomains (`madebyripo.sbs` and `*.madebyripo.sbs`, which covers `api.madebyripo.sbs`). **Before that certificate exists, HTTPS to any subdomain on this domain will fail the TLS handshake** — not a bug, not a misconfiguration, just a certificate that doesn't exist yet. `curl`'s `SSL_ERROR_SYSCALL` (rather than a clean "could not resolve host") is the specific symptom of this: DNS resolves to *something*, but there's no valid cert being served for that hostname yet.
+- **As of the most recent check in this session, `dig NS madebyripo.sbs` still returned Vercel's nameservers** (`ns1.vercel-dns.com`, `ns2.vercel-dns.com`), and `https://api.madebyripo.sbs/health` failed with exactly the TLS symptom described above — confirmed directly, not assumed. This means the nameserver change likely hasn't finished propagating yet (or wasn't fully completed at Hostinger's end) as of this write-up. **Re-run `dig NS madebyripo.sbs` and re-test `curl https://api.madebyripo.sbs/health` before relying on this domain being live** — don't take this doc's word for it being reachable.
+
+### 2. Cloudflare Tunnel — Named Tunnel (active method) + Quick Tunnel (fallback)
+
+**Named tunnel is the active configuration**, using the domain above. Unlike Quick Tunnel, it needs a Cloudflare account, a domain on Cloudflare (previous section), and a one-time `cloudflared tunnel login` — but in exchange, the URL is **persistent**: `api.madebyripo.sbs` stays the same across every Mac restart, tunnel reconnect, and crash, for as long as the tunnel exists. That's the core trade-off versus Quick Tunnel: **named tunnel is a stable URL that costs an account + domain to set up once; Quick Tunnel is a zero-setup URL that's a different random string every single time the process reconnects.** Quick Tunnel is kept as the fallback/emergency option — see the end of this section for when to fall back to it.
+
+Setup that was actually run for this domain (documented here for reference/future re-setup, not something to re-run unless you're starting over):
 
 ```bash
 brew install cloudflared
+cloudflared tunnel login                        # opens a browser, authorizes cloudflared against your Cloudflare account
+cloudflared tunnel create ilovemusic-api         # prints a tunnel ID, writes ~/.cloudflared/<tunnel-id>.json (the tunnel's private key — treat like any other credential, never commit it)
+cloudflared tunnel route dns ilovemusic-api api.madebyripo.sbs
 ```
 
-That's it — no login, no account interaction needed for Quick Tunnel mode. The launchd agent (next section) runs `cloudflared tunnel --url http://localhost:3000` directly; there's nothing else to configure.
+- **Tunnel ID**: `219cb51d-7f8e-4ae0-b8f3-42394bb102ae` — this identifies the tunnel object in Cloudflare's system. It's fine for this to be public (it's in `apps/api/cloudflared/config.yml`, which is committed) — it's not a secret by itself, the same way a database's primary key isn't a secret. The actual sensitive material is `~/.cloudflared/219cb51d-7f8e-4ae0-b8f3-42394bb102ae.json`, the tunnel's private credentials file, which lives only in your home directory and is never referenced by value anywhere in this repo — only by path.
+- **`cloudflared tunnel route dns`** creates a CNAME record pointing `api.madebyripo.sbs` at `<tunnel-id>.cfargotunnel.com` — a special Cloudflare-only hostname for reaching a specific tunnel, not a regular IP address. This CNAME only does anything once Cloudflare is actually authoritative for the zone (see DNS propagation above) — creating it earlier doesn't error, it just has no effect on the public internet until the nameserver migration completes.
+- **`apps/api/cloudflared/config.yml`** is the active, filled-in config (real tunnel ID, real `credentials-file` path, real hostname) — committed to the repo, since none of that is secret (see above). **`apps/api/cloudflared/config.named-tunnel.yml.example`** is kept alongside it as a placeholder template (literal `<TUNNEL_ID>`, `api.yourdomain.com`) for setting this up again on a different domain/machine — not loaded by anything, reference only.
+- **`apps/api/launchd/com.ilovemusic.cloudflared.plist`** now runs named-tunnel mode: `cloudflared tunnel --config apps/api/cloudflared/config.yml run`. **This must point at `config.yml`, not `config.named-tunnel.yml.example`** — pointing it at the `.example` file was a real bug hit during this migration (cloudflared fails immediately with `Tunnel credentials file '.../<TUNNEL_ID>.json' doesn't exist`, since that literal placeholder string is never a real path). Fixed and verified: the tunnel now registers successfully with Cloudflare's edge under this config.
+- **Falling back to Quick Tunnel**, if the named tunnel ever has a problem you need to work around quickly: swap `com.ilovemusic.cloudflared.plist`'s `ProgramArguments` back to `["cloudflared", "tunnel", "--url", "http://localhost:3000"]` (no `--config` flag), reload via `launchctl unload`/`load`, then read the new random URL with `get-tunnel-url.sh` below. No account/domain interaction needed for this fallback — that's the whole point of keeping Quick Tunnel available rather than deleting the old setup.
 
-**If you get a domain on Cloudflare later** and want a stable URL instead: `apps/api/cloudflared/config.named-tunnel.yml.example` and `apps/api/launchd/com.ilovemusic.cloudflared.named-tunnel.plist.example` are the named-tunnel equivalents, kept specifically for this — not deleted, not currently active. To switch: `cloudflared tunnel login` + `cloudflared tunnel create ilovemusic-api` (writes `~/.cloudflared/<tunnel-id>.json`), fill in the real `<TUNNEL_ID>` in the `.example` config and rename it to `config.yml`, then rename the `.example` plist to replace the active `com.ilovemusic.cloudflared.plist` (reload via `launchctl unload`/`load`). Both `.example` files already reflect the same single-port/no-Postgres-Redis-ingress design as the active setup — read their header comments when you get there.
+### 3. Reading the current URL — mainly relevant if you've fallen back to Quick Tunnel
 
-### 2. Reading the current URL — it changes, so don't try to remember it
-
-`apps/api/scripts/get-tunnel-url.sh` reads the tunnel's own log for the most recently announced URL:
+With the named tunnel active, `api.madebyripo.sbs` doesn't change — you don't need this script day-to-day anymore. It's still here for the Quick Tunnel fallback case, where the URL *does* change on every reconnect:
 
 ```bash
 apps/api/scripts/get-tunnel-url.sh
 # -> https://some-random-words-1234.trycloudflare.com
 ```
 
-Run this after every Mac restart, tunnel reconnect, or crash-triggered `KeepAlive` restart — anything that makes the plist below relaunch `cloudflared` assigns a new URL. There is no notification for this; the only way to know is to ask (this script) or watch the log (`tail -f ~/Library/Logs/ilovemusic-cloudflared.log`).
+If you're running named tunnel (the default now) and this script returns something, that's leftover from a past Quick Tunnel session's log — ignore it and use `api.madebyripo.sbs` directly.
 
-### 3. Auto-start everything via launchd (macOS's equivalent of systemd — this is a Mac, not a Linux server)
+### 4. Auto-start everything via launchd (macOS's equivalent of systemd — this is a Mac, not a Linux server)
 
-Three new LaunchAgents, one each for the server, the worker, and cloudflared — in `apps/api/launchd/`. Read each file's header comment; they explain the reasoning (built output not `npm run dev`, absolute paths since launchd doesn't source your shell profile, `KeepAlive` for auto-restart on crash). The active `com.ilovemusic.cloudflared.plist` runs Quick Tunnel mode (no `--config` flag) — the `.named-tunnel.plist.example` alongside it is the inactive alternative described above.
+Three new LaunchAgents, one each for the server, the worker, and cloudflared — in `apps/api/launchd/`. Read each file's header comment; they explain the reasoning (built output not `npm run dev`, absolute paths since launchd doesn't source your shell profile, `KeepAlive` for auto-restart on crash). The active `com.ilovemusic.cloudflared.plist` now runs named-tunnel mode (`--config apps/api/cloudflared/config.yml`) — the `.named-tunnel.plist.example` file that used to describe this mode has been folded into the now-active plist itself; that `.example` file's role is now historical/template reference for setting this up fresh elsewhere.
 
 **Before installing any of them**, build the app once — launchd runs the compiled `dist/`, not `tsx`:
 
@@ -145,15 +161,13 @@ apps/api/scripts/get-tunnel-url.sh   # confirm you can see today's URL
 
 After any code change: rebuild, then `launchctl unload` + `launchctl load` the relevant agent (server/worker only — cloudflared doesn't need reloading for app code changes, only if you edit its own config/plist).
 
-### 4. URL stability trade-offs — read this before sharing the URL anywhere
+### 5. URL stability — why the named-tunnel migration happened
 
-Quick Tunnel's URL instability isn't a minor inconvenience to work around, it's a real fit constraint:
+This used to be the point in this doc where Quick Tunnel's URL instability was flagged as a real fit constraint: fine for manual testing/live demos where you're present to re-fetch the current URL, **not** fine for anything that references the URL without you there to update it — a GitHub README link, a portfolio entry, or GitBook documentation with a fixed API base URL. That constraint is exactly why the named-tunnel migration above happened: `api.madebyripo.sbs` doesn't have this problem — it's the same URL across restarts, reconnects, and crashes, for as long as the tunnel exists.
 
-**Fine for**: manual testing against a real public URL, live demos where you paste the current URL to someone while you're both looking at it, one-off end-to-end verification. In all of these you're present at the moment the URL matters, so "it changed since last time" is a non-issue — you just run `get-tunnel-url.sh` right before you need it.
+If you're temporarily back on the Quick Tunnel fallback (previous section) for any reason, the old constraint applies again for as long as you're on it: fine for testing where you're present, not fine for anything unattended.
 
-**Not fine for**: anything that references the URL *without you being there to update it* — a link in the GitHub README, a CV/portfolio entry, or (specifically flagged since it's on the roadmap) **GitBook documentation that would reference a fixed API base URL**. Any of these would silently break the next time the tunnel reconnects, with no mechanism to notify whoever's reading that stale link. If/when GitBook docs happen, that's exactly the point to either switch to the named-tunnel setup above (needs a domain) or move to a real platform deployment (`## Deploying to Render`, below) — not to keep using Quick Tunnel and hope the Mac never restarts.
-
-### 5. Security hardening for "exposed from a home network" specifically
+### 6. Security hardening for "exposed from a home network" specifically
 
 Reviewed against the actual current code, not assumed:
 

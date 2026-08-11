@@ -1,0 +1,56 @@
+# ACTIVE — self-hosting apps/api at api.madebyripo.sbs (domain registered
+# on Hostinger, DNS + tunnel routing on Cloudflare — see DEPLOYMENT.md's
+# "Self-Hosting via Cloudflare Tunnel" section for the full migration
+# history). Quick tunnel (random *.trycloudflare.com URL, no domain
+# needed) is now the fallback/emergency option — see
+# config.named-tunnel.yml.example, kept as a template/reference, not
+# loaded by anything right now.
+#
+# ../launchd/com.ilovemusic.cloudflared.plist points --config at this
+# exact file. Don't point it at config.named-tunnel.yml.example instead —
+# that's a placeholder template (literal <TUNNEL_ID> in its
+# credentials-file path, not a real one), and cloudflared fails outright
+# if pointed at it directly.
+#
+# Cloudflare Tunnel config for self-hosting apps/api's server from home.
+#
+# ONLY the Fastify API port is tunneled — one ingress rule, one port. This
+# is deliberate, not an oversight: Postgres (5432) and Redis (6379) are
+# NEVER given an ingress rule here, and never should be. A tunnel only
+# exposes what you explicitly list under `ingress:` — there is no "expose
+# everything on this machine" mode — so the only way Postgres/Redis become
+# reachable from the internet through this tunnel is if someone adds a rule
+# for them. Don't. They have no auth of their own worth exposing publicly
+# (the local dev docker-compose/Homebrew setup trusts localhost implicitly)
+# — the API server is the only thing in this stack designed to sit behind
+# a public URL (it has its own auth: X-API-Key + rate limiting).
+#
+# The worker is NOT tunneled either — it has no HTTP server at all (see
+# apps/api/DEPLOYMENT.md's Health check section), nothing to expose.
+#
+# --- Setup (you run this, not Claude Code — needs your Cloudflare account) ---
+#   brew install cloudflared
+#   cloudflared tunnel login
+#   cloudflared tunnel create ilovemusic-api
+#     -> prints a tunnel ID and writes ~/.cloudflared/<tunnel-id>.json
+#   Fill in <TUNNEL_ID> below (from the command above) and, if you're
+#   routing a real domain to it, run:
+#   cloudflared tunnel route dns ilovemusic-api api.yourdomain.com
+#
+# See apps/api/DEPLOYMENT.md's "Self-Hosting via Cloudflare Tunnel" section
+# for the full walkthrough, including the free *.trycloudflare.com option
+# if you don't have a domain on Cloudflare yet and just want to test now.
+
+tunnel: 219cb51d-7f8e-4ae0-b8f3-42394bb102ae
+credentials-file: /Users/ripo/.cloudflared/219cb51d-7f8e-4ae0-b8f3-42394bb102ae.json
+
+ingress:
+  # The one and only service this tunnel exposes. Change the hostname to
+  # match whatever DNS record you route at this tunnel (see setup above).
+  - hostname: api.madebyripo.sbs
+    service: http://localhost:3000 # matches apps/api's PORT env var — update both together if you change it
+
+  # Required catch-all — cloudflared refuses to start without one. Anything
+  # not matching a hostname above (typos, other subdomains someone tries)
+  # gets a plain 404, not routed anywhere.
+  - service: http_status:404
