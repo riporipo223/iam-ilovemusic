@@ -6,9 +6,14 @@ node_modules/
 dist/
 **/dist/
 
-# Build binaries (too large for git)
-build/bin/
+# Build binaries (too large for git) — but keep the doc explaining what
+# goes here, since the binaries themselves are never committed. Excluding
+# via build/bin/* (not build/bin/) so the !negation below can still reach
+# inside the directory — git can't re-include a file whose parent directory
+# itself was excluded, only files matched individually.
+build/bin/*
 build/bin/win/
+!build/bin/README.md
 
 # OS files
 .DS_Store

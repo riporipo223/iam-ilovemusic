@@ -40,6 +40,20 @@ mac:
   target:
     - dmg
     - zip
+  # spotdl/ffmpeg/ffprobe bundled here (mac-only), not in the shared
+  # extraResources above, so they don't get copied into Windows builds too.
+  # aubio is deliberately NOT bundled — no official static/portable build
+  # exists for it (checked: aubio/aubio's GitHub releases ship source only,
+  # every version). detectBPMFromAudio() already degrades gracefully to a
+  # null BPM when aubio is missing, same as the existing python3/librosa
+  # key-detection fallback — see CHANGELOG / release notes.
+  extraResources:
+    - from: build/bin/spotdl
+      to: bin/spotdl
+    - from: build/bin/ffmpeg
+      to: bin/ffmpeg
+    - from: build/bin/ffprobe
+      to: bin/ffprobe
 
 win:
   # icon: build/icons/icon.ico  # Uncomment when you have icon.ico file
