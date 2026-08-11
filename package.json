@@ -1,36 +1,39 @@
 {
-    "name": "ilovemusic-desktop",
-    "version": "0.2.2",
-    "description": "ILoveMusic - SoundCloud & Spotify Music Downloader and Player with BPM Detection (Premium Quality - 320kbps)",
-    "author": "CactusDomain",
-    "main": "main.js",
-    "private": true,
-    "engines": {
-        "node": ">=20"
-    },
-    "workspaces": [
-        "packages/*",
-        "apps/api"
-    ],
-    "scripts": {
-        "dev": "npm run build --workspace @ilovemusic/engine && concurrently \"npm run dev --prefix renderer\" \"electron .\"",
-        "build": "npm run build --workspace @ilovemusic/engine && npm run build --prefix renderer && electron-builder",
-        "build:mac": "npm run build --workspace @ilovemusic/engine && npm run build --prefix renderer && electron-builder --mac",
-        "build:win": "npm run build --workspace @ilovemusic/engine && npm run build --prefix renderer && electron-builder --win",
-        "build:linux": "npm run build --workspace @ilovemusic/engine && npm run build --prefix renderer && electron-builder --linux",
-        "test": "npm run test --workspace @ilovemusic/engine && npm run test --workspace @ilovemusic/api"
-    },
-    "devDependencies": {
-        "concurrently": "^8.2.2",
-        "electron": "^39.2.7",
-        "electron-builder": "^25.1.8"
-    },
-    "dependencies": {
-        "archiver": "^7.0.1",
-        "archiver-utils": "^5.0.2",
-        "dotenv": "^17.4.2",
-        "music-metadata": "^11.10.3",
-        "node-id3": "^0.2.9",
-        "soundcloud-downloader": "^1.0.0"
-    }
+  "name": "ilovemusic-desktop",
+  "version": "0.2.2",
+  "description": "ILoveMusic - SoundCloud & Spotify Music Downloader and Player with BPM Detection (Premium Quality - 320kbps)",
+  "author": "CactusDomain",
+  "main": "main.js",
+  "private": true,
+  "engines": {
+    "node": ">=20"
+  },
+  "workspaces": [
+    "packages/*",
+    "apps/api"
+  ],
+  "scripts": {
+    "dev": "npm run build --workspace @ilovemusic/engine && concurrently \"npm run dev --prefix renderer\" \"electron .\"",
+    "build": "npm run build --workspace @ilovemusic/engine && npm run build --prefix renderer && node scripts/build-desktop.js",
+    "build:mac": "npm run build --workspace @ilovemusic/engine && npm run build --prefix renderer && node scripts/build-desktop.js --mac",
+    "build:win": "npm run build --workspace @ilovemusic/engine && npm run build --prefix renderer && node scripts/build-desktop.js --win",
+    "build:linux": "npm run build --workspace @ilovemusic/engine && npm run build --prefix renderer && node scripts/build-desktop.js --linux",
+    "test": "npm run test --workspace @ilovemusic/engine && npm run test --workspace @ilovemusic/api",
+    "verify:env": "node scripts/verify-env-loading.js",
+    "verify:env:packaged": "node scripts/verify-env-loading.js --packaged"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2",
+    "electron": "^39.2.7",
+    "electron-builder": "^25.1.8"
+  },
+  "dependencies": {
+    "@ilovemusic/engine": "*",
+    "archiver": "^7.0.1",
+    "archiver-utils": "^5.0.2",
+    "dotenv": "^17.4.2",
+    "music-metadata": "^11.10.3",
+    "node-id3": "^0.2.9",
+    "soundcloud-downloader": "^1.0.0"
+  }
 }
