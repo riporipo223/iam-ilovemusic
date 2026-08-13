@@ -54,6 +54,13 @@ mac:
       to: bin/ffmpeg
     - from: build/bin/ffprobe
       to: bin/ffprobe
+    # JS runtime for yt-dlp's YouTube extraction (SABR/anti-bot challenges
+    # now require one — see yt-dlp/yt-dlp#15012). quickjs-ng's official
+    # static build, not deno: same fix, ~1.2MB vs ~90MB+ for a V8-based
+    # runtime. Wired in via ytDlpJsRuntimeArgs() in packages/engine, only
+    # for the yt-dlp call site that actually hits YouTube.
+    - from: build/bin/quickjs
+      to: bin/quickjs
 
 win:
   # icon: build/icons/icon.ico  # Uncomment when you have icon.ico file

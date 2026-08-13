@@ -8,10 +8,11 @@ At runtime, the packaged desktop app sets `ILOVEMUSIC_BIN_DIR` to its own `Resou
 
 | File | Version | Architecture | Source | SHA-256 |
 |---|---|---|---|---|
-| `yt-dlp` | 2025.12.08 (currently bundled) | arm64 (confirmed via `file`) | Not re-verified this session — pre-existing before this bundling pass | Not recorded when originally added |
+| `yt-dlp` | 2026.07.04 | universal2 (x86_64 + arm64 — confirmed via `file`, an improvement over the previous single-arch build) | Official yt-dlp GitHub release: `https://github.com/yt-dlp/yt-dlp/releases/download/2026.07.04/yt-dlp_macos` | `498bd0dae17855c599d371d68ec5bafc439a9d8640e838be25c765a9792f261b` |
 | `spotdl` | 4.5.2 | **arm64 only** — confirmed via `file`, not universal2. Their release build script does not pass `--target-arch universal2` and runs on GitHub's arm64 `macos-latest` runner. **Will not run on Intel Macs.** | Official spotDL GitHub release: `https://github.com/spotDL/spotify-downloader/releases/download/v4.5.2/spotdl-4.5.2-darwin` | `0e6a1b704253eda7dda7e85e2a8137b024fdd09cf94e9ab6286350dee95fcabc` |
 | `ffmpeg` | 9.0 (evermeet.cx "tessus" build) | **x86_64 only** — evermeet.cx has stated no plans to build for Apple Silicon. Runs on arm64 Macs via Rosetta 2 (verified: `./ffmpeg -version` executes successfully on this arm64 dev machine). | Officially linked from ffmpeg.org's own download page: `https://evermeet.cx/ffmpeg/ffmpeg-9.0.zip` | `b1bd0cbaa0c889a08589dc1d14e4a08eebf425b8726c31a7e270e08552d0f271` (of the `.zip`) |
 | `ffprobe` | 9.0 (evermeet.cx "tessus" build) | x86_64 only, same as `ffmpeg` above | `https://evermeet.cx/ffmpeg/ffprobe-9.0.zip` | `66a5102de63ce1c6a203d05a463ac836100eba9403d16968674366de17452da6` (of the `.zip`) |
+| `quickjs` | quickjs-ng v0.16.1 (`qjs` binary, renamed) | arm64 only — the arm64 build was chosen since it's the only one this dev machine can verify directly; quickjs-ng also publishes `qjs-darwin-x86_64` if Intel support is needed later | Official quickjs-ng GitHub release: `https://github.com/quickjs-ng/quickjs/releases/download/v0.16.1/qjs-darwin-arm64` | `9a24e7435036906c098d539daf47bcc8e7e8ad2f3aa084a0bce9313c6c3527e0` |
 
 ## Windows (`build/bin/win/`)
 

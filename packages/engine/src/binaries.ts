@@ -12,7 +12,7 @@ import * as os from 'os';
  *   4. The bare binary name, resolved via PATH (the expected path on a
  *      server/Docker image where these tools are installed properly)
  */
-export type BinaryName = 'spotdl' | 'yt-dlp' | 'ffmpeg' | 'ffprobe' | 'aubio' | 'python3';
+export type BinaryName = 'spotdl' | 'yt-dlp' | 'ffmpeg' | 'ffprobe' | 'aubio' | 'python3' | 'quickjs';
 
 const ENV_OVERRIDE: Record<BinaryName, string> = {
   spotdl: 'SPOTDL_PATH',
@@ -21,6 +21,7 @@ const ENV_OVERRIDE: Record<BinaryName, string> = {
   ffprobe: 'FFPROBE_PATH',
   aubio: 'AUBIO_PATH',
   python3: 'PYTHON_PATH',
+  quickjs: 'QUICKJS_PATH',
 };
 
 const DEV_SEARCH_PATHS: Record<BinaryName, string[]> = {
@@ -30,6 +31,9 @@ const DEV_SEARCH_PATHS: Record<BinaryName, string[]> = {
   ffprobe: ['/opt/homebrew/bin/ffprobe', '/usr/local/bin/ffprobe', '/usr/bin/ffprobe'],
   aubio: ['/opt/homebrew/bin/aubio', '/usr/local/bin/aubio', '/usr/bin/aubio'],
   python3: [],
+  // No Homebrew formula in common use for quickjs-ng specifically (unlike
+  // the other tools above) — ILOVEMUSIC_BIN_DIR (bundled) or bare PATH only.
+  quickjs: [],
 };
 
 /**
@@ -76,4 +80,27 @@ export function resolveBinary(name: BinaryName): string {
   }
 
   return name;
+}
+
+/**
+ * yt-dlp's `--js-runtimes RUNTIME:PATH` flag, only when a real quickjs
+ * binary was actually found (bundled, or on PATH) — omitted otherwise, so
+ * yt-dlp falls back to its own default detection (e.g. a system `deno`)
+ * rather than being pointed at a nonexistent `quickjs` on a machine that
+ * doesn't have one. Extracted here (not inlined at each yt-dlp call site)
+ * since resolveBinary('quickjs') already encodes "found vs not" as
+ * resolved-path vs bare-name — no need to duplicate that check elsewhere.
+ *
+ * Needed because YouTube now requires a JS runtime for full extraction
+ * (yt-dlp's own announcement: https://github.com/yt-dlp/yt-dlp/issues/15012)
+ * — this degrades gracefully rather than hard-failing, but format
+ * availability shrinks over time without one. Only relevant for yt-dlp
+ * calls that actually hit YouTube; SoundCloud/Bandcamp extraction never
+ * touches this, so this helper is deliberately not wired into every
+ * yt-dlp call site, only the YouTube-search fallback.
+ */
+export function ytDlpJsRuntimeArgs(): string[] {
+  const quickjsPath = resolveBinary('quickjs');
+  if (quickjsPath === 'quickjs') return [];
+  return ['--js-runtimes', `quickjs:${quickjsPath}`];
 }
