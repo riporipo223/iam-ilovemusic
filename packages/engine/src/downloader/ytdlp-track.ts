@@ -116,14 +116,31 @@ export async function downloadYtDlpAudio(url: string, outputTemplate: string): P
   const ytDlpPath = resolveBinary('yt-dlp');
   const cleanUrl = cleanSoundCloudUrl(url);
 
-  const downloadArgs = ['-x', '--audio-format', 'mp3', '--audio-quality', '0', '--prefer-ffmpeg', '-o', outputTemplate, cleanUrl];
+  // yt-dlp does its own audio extraction/conversion here (-x), which needs
+  // ffmpeg — and yt-dlp has its own separate PATH-only ffmpeg detection with
+  // no idea about our bundled copy (same class of bug fixed for Spotify's
+  // yt-dlp fallback in downloadAudioFromYouTubeSearch — see spotify.ts).
+  // Confirmed by reproduction before this fix: on a machine with no system
+  // ffmpeg, this doesn't error — it silently falls through to the
+  // bestaudio fallback below and produces a raw .m4a instead of the
+  // requested .mp3, no error surfaced anywhere. --ffmpeg-location is
+  // yt-dlp's flag for pointing it at an explicit binary.
+  const ffmpegLocationArgs = ['--ffmpeg-location', resolveBinary('ffmpeg')];
+
+  const downloadArgs = [...ffmpegLocationArgs, '-x', '--audio-format', 'mp3', '--audio-quality', '0', '--prefer-ffmpeg', '-o', outputTemplate, cleanUrl];
 
   try {
     await execFileAsync(ytDlpPath, downloadArgs);
   } catch (downloadError) {
     const message = (downloadError as Error).message || '';
     if (message.includes('ffmpeg') || message.includes('ffprobe')) {
-      const originalArgs = ['-x', '-f', 'bestaudio', '-o', outputTemplate, cleanUrl];
+      // Note: -f bestaudio picks an already-audio-only format, which is why
+      // this fallback can succeed without ffmpeg at all (no video track to
+      // strip) — but the resulting file is whatever native format that
+      // source served (m4a, webm, ...), not necessarily mp3. Included here
+      // too for consistency/robustness, not because this branch is known to
+      // need it.
+      const originalArgs = [...ffmpegLocationArgs, '-x', '-f', 'bestaudio', '-o', outputTemplate, cleanUrl];
       await execFileAsync(ytDlpPath, originalArgs);
     } else {
       throw new Error(`Failed to download audio: ${message}`);
@@ -294,6 +311,16 @@ export async function downloadThumbnailViaYtDlp(url: string, artworkDir: string,
 
   try {
     await execFileAsync(ytDlpPath, [
+      // --convert-thumbnails also goes through yt-dlp's own ffmpeg
+      // detection when the source thumbnail isn't already the target
+      // format — didn't reproduce a failure in testing (SoundCloud/Bandcamp
+      // both happened to already serve jpg for the tracks tested, so no
+      // conversion was actually triggered), but included for the same
+      // reason as downloadYtDlpAudio above: cheap, harmless when unused,
+      // and this is a genuine conversion step that could need it for a
+      // thumbnail format we haven't hit in testing.
+      '--ffmpeg-location',
+      resolveBinary('ffmpeg'),
       '--write-thumbnail',
       '--skip-download',
       '--convert-thumbnails',
