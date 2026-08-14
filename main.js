@@ -794,12 +794,29 @@ function createWindow() {
   const win = new BrowserWindow({
     width: 1200,
     height: 800,
-    minWidth: 1200,
-    maxWidth: 1200,
-    minHeight: 800,
-    maxHeight: 800,
-    resizable: false,
-    fullscreenable: false,
+    // Opens at the same 1200x800 as before, but no longer locked there.
+    // minWidth/minHeight (960x640) come from actually testing the layout at
+    // shrinking sizes, not a guess: verified via the renderer running
+    // standalone in a browser tab (Vite dev server, resized with fake track
+    // data seeded into localStorage — same component tree the packaged app
+    // uses, since main.js only adds Electron-specific IPC around it, not
+    // separate layout code). 900x600 held up cleanly; 700x500 visibly broke
+    // (Download button overlapping the Inspector panel header, a shelf card
+    // clipped at the viewport edge). 960x640 keeps margin above the
+    // observed breakage point rather than sitting right at the edge of it.
+    //
+    // No maxWidth/maxHeight — tested up to 2560x1440: nothing overlaps or
+    // clips at large sizes, but the 3D shelf's cards are fixed-pixel-sized
+    // (not implemented as responsive), so on a large display the shelf ends
+    // up with a lot of empty space around it rather than growing to fill
+    // the window. That's a real, known cosmetic limitation, not a reason to
+    // cap the window size — capping it would just trade "extra empty space
+    // at large sizes" for "no fullscreen/maximize at all," which is the
+    // actual bug being fixed here.
+    minWidth: 960,
+    minHeight: 640,
+    resizable: true,
+    fullscreenable: true,
     // macOS specific: Show traffic lights (like Discord)
     titleBarStyle: 'hiddenInset',
     trafficLightPosition: { x: 15, y: 15 },
@@ -811,15 +828,6 @@ function createWindow() {
     }
   });
   
-  // Prevent fullscreen via keyboard shortcuts
-  win.setFullScreenable(false);
-  
-  // Prevent maximize
-  win.setMaximizable(false);
-  
-  // Prevent minimize (optional, bisa dihapus jika ingin bisa minimize)
-  // win.setMinimizable(false);
-
   // Check if we're in development or production
   // app.isPackaged is true when the app is packaged by electron-builder
   const isDev = !app.isPackaged;
