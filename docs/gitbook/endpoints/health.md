@@ -1,5 +1,9 @@
 # Health Check
 
+{% hint style="info" %}
+Looking for the simplest way to use ILoveMusic? See the [CLI Guide](../cli-guide.md) instead — the CLI talks to a fixed, known-live instance, so you never need to check this yourself. This page is for developers building their own integration.
+{% endhint %}
+
 ```
 GET {{BASE_URL}}/health
 ```

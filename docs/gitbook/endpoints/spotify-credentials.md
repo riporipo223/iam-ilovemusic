@@ -1,5 +1,9 @@
 # Spotify Credentials
 
+{% hint style="info" %}
+Looking for the simplest way to use ILoveMusic? See the [CLI Guide](../cli-guide.md) instead — `ilovemusic download` prompts for your Spotify Client ID/Secret inline the first time you need them and calls this endpoint for you. This page is for developers building their own integration.
+{% endhint %}
+
 Manages your **own** Spotify Developer App credentials, used only for Spotify downloads. See the [BYOK Guide](../byok-guide.md) for why this exists and how to create the credentials in the first place — this page is the endpoint reference.
 
 Both endpoints require an `X-API-Key` header, and act on the credentials attached to that key only.

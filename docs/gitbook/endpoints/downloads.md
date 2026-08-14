@@ -1,5 +1,9 @@
 # Downloads
 
+{% hint style="info" %}
+Looking for the simplest way to use ILoveMusic? See the [CLI Guide](../cli-guide.md) instead — `ilovemusic download` does everything on this page for you, including the polling loop. This page is for developers building their own integration.
+{% endhint %}
+
 The core of the API: submit a track URL, get a job back, poll it until it's done.
 
 All endpoints on this page require an `X-API-Key` header — see [Getting Started](../README.md#authentication).
