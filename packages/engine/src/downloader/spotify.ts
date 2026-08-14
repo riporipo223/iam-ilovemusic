@@ -221,6 +221,26 @@ export async function downloadAudioFromYouTubeSearch(
       throw downloadError;
     }
   }
+
+  // yt-dlp exits 0 even when a ytsearch query matches zero videos — it just
+  // "successfully" downloads an empty playlist, no error raised. Confirmed
+  // via direct reproduction against a real track (Swapa — "Real Sex") whose
+  // video is fully public and unrestricted on YouTube (found instantly via
+  // an unrelated query for the same artist), but every search query
+  // containing the phrase "real sex" — including the video's own exact
+  // title — returned zero results. Without this check, that silent
+  // zero-results case was indistinguishable from a real success all the way
+  // up to processSpotifyTrack()'s generic "Downloaded audio file not found"
+  // message, which gives no hint this is a search-relevance limitation
+  // rather than something worth retrying. Mirrors the equivalent check
+  // already in downloadAudioFromSpotify() above.
+  const outputDir = path.dirname(outputPath);
+  const outputStem = path.basename(outputPath).replace(/\.%\(ext\)s$/, '');
+  if (!findDownloadedFile(outputDir, outputStem)) {
+    throw new Error(
+      `No YouTube results found for "${improvedQuery}" — this track may not be findable via YouTube search, or nothing relevant matched.`
+    );
+  }
 }
 
 /**
