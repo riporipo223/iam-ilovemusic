@@ -15,6 +15,15 @@ build/bin/*
 build/bin/win/
 !build/bin/README.md
 
+# Same reasoning as build/bin/ above, for apps/api's own worker binaries
+# (separate copy from the desktop app's bundle — see apps/api/DEPLOYMENT.md).
+apps/api/bin/
+
+# Dedicated venv for the worker's spotdl (separate from .venv/'s librosa —
+# see apps/api/DEPLOYMENT.md). .venv/ below only matches that exact name.
+.venv-spotdl/
+**/.venv-spotdl/
+
 # OS files
 .DS_Store
 .DS_Store?

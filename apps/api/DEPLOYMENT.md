@@ -181,6 +181,28 @@ Reviewed against the actual current code, not assumed:
 - **Never add an `ingress` rule for Postgres (5432) or Redis (6379) in `config.yml`, ever, for any reason** — including "just for a minute to debug something." Neither has meaningful auth against a public connection; the entire local dev setup trusts localhost implicitly. If you need to inspect them remotely, tunnel over SSH instead, not through this Cloudflare Tunnel.
 - **Never lower/disable rate limiting "just to test something" and forget to revert it.** If you do this, set a calendar reminder before you touch `.env`, not after.
 
+### 7. `spotdl` and `quickjs` — this worker's actual binary setup, not the Docker plan's
+
+The **Images** section above (and `packages/engine/scripts/requirements.txt`) describes a Docker `worker` image with `spotdl`/`yt-dlp`/`librosa` all on one shared venv's `PATH` — that's the *unused* Render/Docker plan, not what this self-hosted worker actually runs. This machine's real setup, worked out after `spotdl` turned out to be silently broken for every single Spotify track:
+
+- **`spotdl` needs its own venv, separate from the `librosa`/key-detection one** (`.venv/` at repo root, referenced by `PYTHON_PATH`). Not for any dependency-conflict reason discovered in practice — just to keep spotdl's dependency tree (its own pinned `yt-dlp`, `ytmusicapi`, etc.) from ever being able to affect the already-working key-detection venv, or vice versa. Created the same way:
+  ```bash
+  python3 -m venv .venv-spotdl
+  .venv-spotdl/bin/pip install spotdl
+  ```
+  **Check spotdl's actual `Requires-Python` before picking a Python version** (`curl -s https://pypi.org/pypi/spotdl/json | python3 -c "import json,sys; print(json.load(sys.stdin)['info']['requires_python'])"`) — don't assume the same version as `librosa`'s venv is fine just because it's already installed. As of spotdl 4.5.2 this is `>=3.10,<3.15`, comfortably covering this machine's Homebrew `python3` (3.14.6 at the time of this writeup) — no separate Python install needed here, but re-check if spotdl's range has narrowed by the time you read this.
+  - **Root cause this replaced**: the previously-resolved `spotdl` (`~/Library/Python/3.9/bin/spotdl`, from an old `pip install --user` against Xcode Command Line Tools' bundled Python 3.9) crashed on *every* invocation — `check_ytmusic_connection()` constructs a `YoutubeDL` instance, which detects Python 3.9 as deprecated and logs an error-level message; spotdl's own custom logger turns any error-level message from yt-dlp into a raised `AudioProviderError`, unconditionally. Confirmed via direct reproduction (not assumed) before touching anything: same crash on a previously-successful control track, not just the track that surfaced the report. A newer Python makes this warning not fire at all, not just downgrades it to non-fatal.
+  - Set in `.env`: `SPOTDL_PATH=/absolute/path/to/repo/.venv-spotdl/bin/spotdl` (already a supported override in `packages/engine/src/binaries.ts` — `resolveBinary()` needed no code change, just this value).
+- **`quickjs` needs its own copy for the worker — the desktop app's `build/bin/quickjs` is packaged into the `.dmg`, never installed anywhere `apps/api` can reach.** Same binary, separate copy, so desktop packaging and this worker's config stay independent (`apps/api/bin/quickjs`, copied from `build/bin/quickjs` — checksum-verified identical to the documented `build/bin/README.md` entry before and after copying, not re-downloaded):
+  ```bash
+  mkdir -p apps/api/bin
+  cp build/bin/quickjs apps/api/bin/quickjs
+  ```
+  Set in `.env`: `QUICKJS_PATH=/absolute/path/to/repo/apps/api/bin/quickjs` (also a pre-existing override, no code change).
+  - **Only matters for the Spotify → YouTube-search fallback and spotdl's own internal yt-dlp call** — confirmed by reading `packages/engine/src/downloader/ytdlp-track.ts` before assuming SoundCloud/Bandcamp needed the same wiring: neither ever searches or extracts from YouTube (they hit soundcloud.com/bandcamp.com URLs directly), so `ytDlpJsRuntimeArgs()` is correctly *not* wired into that file, matching the desktop app's own deliberate omission there. Nothing to change for those two sources.
+  - Even with quickjs available, `spotdl`'s own internal yt-dlp match against YouTube Music is genuinely intermittent (~2 of 3 identical attempts succeed in testing) — quickjs can't solve every challenge Deno would. That's a real, accepted limitation, not something this fix claims to eliminate; the existing "produced no output file" check + YouTube-search fallback in `packages/engine/src/downloader/spotify.ts` is what actually absorbs the remaining ~1/3.
+- **After changing either path**: `launchctl kickstart -k gui/$(id -u)/com.ilovemusic.api.worker` (worker only — `server` never shells out to these, see **Images** above).
+
 ### Limitations — read this before treating this as more than a demo
 
 - **No uptime guarantee.** The API is unreachable whenever your Mac is off, asleep, restarting, or loses internet — including routine things like a macOS update reboot or closing the lid without a sleep override.
