@@ -11,10 +11,11 @@ Guidance for AI assistants (and human contributors) working in this repository.
 - **License**: MIT
 - **Platform**: macOS, Windows, Linux (Electron)
 
-The project has two parts today:
+The project has three parts today:
 
 1. **Desktop app** (root of the repo) — the original, released product. Electron + React.
-2. **`packages/engine` + `apps/api`** — a shared download/processing engine extracted from the desktop app, plus a companion job-based API service that runs the same engine outside Electron. This is newer, unreleased, and currently only runs locally (no production deployment). It exists so the download/BPM/metadata logic isn't duplicated between the desktop app and any future non-Electron consumer. See `apps/api/README.md` for how to run it.
+2. **`packages/engine` + `apps/api`** — a shared download/processing engine extracted from the desktop app, plus a companion job-based API service that runs the same engine outside Electron. It exists so the download/BPM/metadata logic isn't duplicated between the desktop app and any future non-Electron consumer. Self-hosted and live at `api.madebyripo.sbs` (Cloudflare Tunnel, named tunnel — see `apps/api/DEPLOYMENT.md`). See `apps/api/README.md` for how to run it locally.
+3. **`apps/cli`** — an interactive, publishable (`@ilovemusic/cli`) command-line client for the public API, for users who don't want the desktop app. Wraps `POST /v1/downloads` + polling + file save behind `ilovemusic create-api-key` / `ilovemusic download`, and prompts inline for Spotify BYOK credentials (`ilovemusic spotify-logout` to reset) rather than letting a Spotify download fail at submit time. See `apps/cli/README.md`.
 
 Philosophy carried over from the original project and still binding:
 
@@ -39,9 +40,14 @@ ILoveMusic/
 │   ├── src/url.ts             # Source detection + URL validation (incl. Bandcamp album guard)
 │   └── scripts/detect_key.py  # librosa-based key detection (Spotify only)
 │
-├── apps/api/                  # Companion job-based download API (Fastify + BullMQ), local-only
+├── apps/api/                  # Companion job-based download API (Fastify + BullMQ), self-hosted, live at api.madebyripo.sbs
 │   ├── src/                   # server.ts, worker.ts, routes/, db/, storage/, queue/
-│   ├── scripts/                # create-api-key, migrate, verify-infra, verify-e2e
+│   ├── scripts/                # create-api-key (operator, direct DB), migrate, verify-infra, verify-e2e
+│   └── README.md
+│
+├── apps/cli/                  # Interactive CLI client for the public API (@ilovemusic/cli on npm)
+│   ├── src/                   # index.ts, api.ts, config.ts, commands/, util/
+│   ├── scripts/verify-e2e.ts  # exercises src/ directly against a live API (bypasses the interactive prompts)
 │   └── README.md
 │
 ├── docs/                      # Current, still-relevant technical notes
@@ -51,7 +57,7 @@ ILoveMusic/
 └── CLAUDE.md                  # This file
 ```
 
-`packages/engine` is a private npm workspace (never published) consumed by both `main.js` (via `require('@ilovemusic/engine')`, built to `dist/`) and `apps/api`.
+`packages/engine` is a private npm workspace (never published) consumed by both `main.js` (via `require('@ilovemusic/engine')`, built to `dist/`) and `apps/api`. `apps/cli` does **not** depend on `packages/engine` — it's a thin HTTP client over `apps/api`'s public routes, nothing more, so it stays trivially publishable without pulling in engine internals or platform-specific binary resolution.
 
 ---
 
@@ -91,7 +97,7 @@ This matters more than it looks — the three sources are architecturally very d
 ```bash
 git clone git@github.com:riporipo223/iam-ilovemusic.git
 cd iam-ilovemusic
-npm install                    # root workspace (desktop app + packages/engine + apps/api)
+npm install                    # root workspace (desktop app + packages/engine + apps/api + apps/cli)
 npm install --prefix renderer  # renderer has its own lockfile, installed separately
 
 cp .env.example .env           # Spotify credentials for the desktop app only
@@ -100,12 +106,15 @@ npm run dev                    # builds packages/engine, then runs Vite + Electr
 
 External tools required for the desktop app (and for `apps/api`'s worker, if you run it): `ffmpeg`, `aubio`, `spotdl` (Python), `yt-dlp`. `packages/engine/src/binaries.ts` resolves these via env var override → `ILOVEMUSIC_BIN_DIR` → common local dev paths → bare `PATH` lookup, in that order — see that file before hardcoding a new path.
 
-`apps/api` is a separate local service (Fastify + BullMQ + Postgres + Redis + R2) — see `apps/api/README.md` for setup and its manual E2E verification script. It is not deployed anywhere; running it requires your own Postgres/Redis/R2.
+`apps/api` is a Fastify + BullMQ + Postgres + Redis + R2 service, self-hosted via Cloudflare Tunnel at `api.madebyripo.sbs` — see `apps/api/README.md` for local setup (your own Postgres/Redis/R2) and its manual E2E verification script, and `apps/api/DEPLOYMENT.md` for the live deployment.
+
+`apps/cli` is a plain npm package with no external service dependency beyond `apps/api` itself — `npm run dev --workspace @ilovemusic/cli -- <command>` runs it against the live API by default, or set `ILOVEMUSIC_API_BASE_URL` to point at a local `apps/api` instead.
 
 ### Testing
 
 - `packages/engine`: `npm test --workspace @ilovemusic/engine` (vitest — BPM/key fallback tiers, artwork fallback tiers, URL guards, and a concurrency test that actually exercises two parallel jobs to catch races like the chdir issue above)
-- `apps/api`: `npm test --workspace @ilovemusic/api` (vitest — route validation, auth, credential gating scoped correctly per source)
+- `apps/api`: `npm test --workspace @ilovemusic/api` (vitest — route validation, auth, credential gating scoped correctly per source, self-serve API key rate limiting)
+- `apps/cli`: `npm test --workspace @ilovemusic/cli` (vitest — filename sanitization, API client error handling) plus `scripts/verify-e2e.ts` for a real end-to-end run against a live API (see `apps/cli/README.md`); doesn't cover the interactive `@clack/prompts` UI itself, which needs a real terminal
 - Desktop app: no automated test suite — manual verification (add a track from each source, play, edit metadata, download, export)
 
 ---
@@ -115,6 +124,7 @@ External tools required for the desktop app (and for `apps/api`'s worker, if you
 - Spotify credentials: desktop app reads from local `.env` (gitignored, never committed). API callers' credentials are AES-256-GCM encrypted at rest, keyed by a separate `CREDENTIALS_ENCRYPTION_KEY` env var — never logged, never returned in any API response after registration.
 - **Desktop app's `.env` path is resolved explicitly in `main.js`, not left to dotenv's default.** In dev, it's `path.join(__dirname, '.env')` (project root); in a packaged build, `path.join(app.getPath('userData'), '.env')` — on macOS, `~/Library/Application Support/ilovemusic-desktop/.env`, which is **not** created automatically and must be copied/created there manually (`.env` is never bundled into the app, same reasoning as `build/bin/`'s binaries). This was a real, previously-shipped bug: dotenv's default lookup is `cwd`-relative, which only worked under `npm run dev` by coincidence, and silently left every credential unset in a Finder-launched packaged app. **The folder name is `ilovemusic-desktop` (from `package.json`'s `"name"`), not `ILoveMusic`** — electron-builder's `productName` ("ILoveMusic") only affects the `.app` bundle name and DMG filename, not `app.getName()`/`app.getPath('userData')`, since it's never injected into the packaged `app.asar`'s `package.json`. Confirmed against a real running instance's `--user-data-dir` launch argument (`ps aux`), not assumed — an earlier attempt at this fix assumed the `.app` bundle's `CFBundleName` instead, which was wrong. `npm run verify:env` / `npm run verify:env:packaged` (`scripts/verify-env-loading.js`) check which vars actually load for each mode without needing to launch the Electron GUI — the desktop app has no automated test suite, so this is the closest thing to a regression guard for this bug class.
 - API keys (`apps/api`) are stored as a deterministic SHA-256 hash (safe here specifically because the plaintext is always a 24-byte crypto-random token, not a user-chosen password) — never as plaintext, never as a per-row-salted hash (which would prevent the indexed lookup the auth path needs).
+- **Two ways to mint an API key, deliberately kept separate.** `apps/api/scripts/create-api-key.ts` has direct Postgres access and is operator-only (never exposed over HTTP). `POST /v1/api-keys` (`apps/api/src/routes/apiKeys.ts`) is the self-serve counterpart the CLI's `create-api-key` command calls — unauthenticated by necessity (it's how a caller gets their first key), so it's protected by a strict per-IP rate limit instead (`config.selfServeApiKeyRateLimit`, default 3/day, distinct from the general per-key rate limit) rather than email/CAPTCHA verification, a deliberate choice given the abuse ceiling is "burn your own download quota," not anything higher-value. Keys minted through each path are tagged via `api_keys.created_via` (`'operator'` vs `'self_serve'`) so a burst of self-serve abuse can be bulk-revoked without touching operator-issued keys.
 - Never commit `.env` files. `apps/api/.env.example` documents required variables without real values.
 
 ---
@@ -125,4 +135,5 @@ External tools required for the desktop app (and for `apps/api`'s worker, if you
 - Read `apps/api/src/routes/downloads.ts`'s credential-gating logic before adding a new source — the Spotify BYOK check must stay scoped to `source === 'spotify'` specifically; it must never apply to sources that don't need it.
 - The desktop app and `apps/api` intentionally do not share deployment/runtime assumptions — `packages/engine`'s binary resolution and file-path handling must stay platform-agnostic (no `app.getPath()`, no other Electron APIs) so both consumers keep working.
 - Don't assume feature parity between sources. Key detection, credential requirements, and even BPM fallback ordering genuinely differ — verify against the actual code (or the investigation notes in recent commit messages / PR descriptions) rather than assuming symmetry.
+- `apps/cli` gets artist/title for its downloaded filenames by parsing the saved file's own ID3 tags (`music-metadata`), not from the job-status API response — `GET /v1/downloads/:job_id` has no artist/title field, since `packages/engine` embeds that metadata into the file itself. Don't add a fake fallback field to the API response to "simplify" this; the CLI's approach is correct given what the API actually returns.
 - `docs/archive/` is historical — useful for understanding *why* something was built a certain way, but treat its technical claims as possibly stale. The current source of truth is the code, `CHANGELOG.md`, and this file.
