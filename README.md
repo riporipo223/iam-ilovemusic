@@ -1,8 +1,12 @@
 # ILoveMusic
 
-> Open-source desktop app for downloading, organizing, and previewing music from SoundCloud, Spotify, and Bandcamp.
+> Open-source tools for downloading, organizing, and previewing music from SoundCloud, Spotify, and Bandcamp.
 
-ILoveMusic is a small indie project built for DJs, music collectors, and people who genuinely love digging through music.
+ILoveMusic is a small indie project built for DJs, music collectors, and people who genuinely love digging through music. There are three ways to use it:
+
+- **The desktop app** (this repo's root, macOS/Windows/Linux via Electron) — the original, full-featured product: library, playback, artwork, batch downloads.
+- **`ilovemusic` CLI** (`@ilovemusic/cli` on npm) — a lightweight, interactive terminal client for people who don't want to install the desktop app. `ilovemusic create-api-key` then `ilovemusic download`. See [apps/cli/README.md](apps/cli/README.md).
+- **The public API directly** (self-hosted, live at `api.madebyripo.sbs`) — for anyone who wants to build their own client. See [apps/api/README.md](apps/api/README.md).
 
 The goal is simple:
 
@@ -59,7 +63,7 @@ The codebase is meant to feel approachable for indie developers and contributors
 - ffmpeg, aubio (audio processing, BPM detection)
 - spotdl, yt-dlp (downloads)
 - music-metadata, node-id3 (tagging)
-- TypeScript (`packages/engine`, `apps/api`)
+- TypeScript (`packages/engine`, `apps/api`, `apps/cli`)
 
 ---
 
@@ -69,13 +73,16 @@ The codebase is meant to feel approachable for indie developers and contributors
 ILoveMusic/
 ├── main.js, preload.js, renderer/   # The desktop app
 ├── packages/engine/                  # Shared download/BPM/metadata engine (TypeScript)
-├── apps/api/                         # Companion job-based download API — local-only, unreleased
+├── apps/api/                         # Public job-based download API — self-hosted, live at api.madebyripo.sbs
+├── apps/cli/                         # Interactive CLI client for the public API (@ilovemusic/cli on npm)
 └── docs/                             # Technical notes (docs/archive/ = historical, unmaintained)
 ```
 
-`packages/engine` holds the actual download/processing logic (Spotify, SoundCloud, Bandcamp; BPM and key detection; metadata/artwork embedding) as a shared TypeScript package, used by the desktop app.
+`packages/engine` holds the actual download/processing logic (Spotify, SoundCloud, Bandcamp; BPM and key detection; metadata/artwork embedding) as a shared TypeScript package, used by the desktop app and `apps/api`.
 
-`apps/api` is a small companion service that exposes the same engine as a job-based HTTP API (Fastify + a queue worker) for running downloads outside of Electron. It's a local development project right now — not deployed anywhere, no public instance — built as an exploration of running the engine standalone. See [apps/api/README.md](apps/api/README.md) if you want to run it yourself.
+`apps/api` exposes that same engine as a job-based HTTP API (Fastify + a queue worker) for running downloads outside of Electron — self-hosted via Cloudflare Tunnel, live at `api.madebyripo.sbs`. Get your own API key with `POST /v1/api-keys` (or via the CLI below) — see [apps/api/README.md](apps/api/README.md) for the full API and [apps/api/DEPLOYMENT.md](apps/api/DEPLOYMENT.md) if you want to run your own instance.
+
+`apps/cli` is a thin, publishable client over that same public API — `npm install -g @ilovemusic/cli`, then `ilovemusic create-api-key` and `ilovemusic download`, no curl or HTTP needed. See [apps/cli/README.md](apps/cli/README.md).
 
 See [CLAUDE.md](CLAUDE.md) for a deeper technical walkthrough of how each source (Spotify/SoundCloud/Bandcamp) actually works — they're less similar than they look.
 
@@ -101,14 +108,14 @@ See [CLAUDE.md](CLAUDE.md) for a deeper technical walkthrough of how each source
 git clone git@github.com:riporipo223/iam-ilovemusic.git
 cd iam-ilovemusic
 
-npm install                     # root workspace + packages/engine + apps/api
+npm install                     # root workspace: packages/engine + apps/api + apps/cli
 npm install --prefix renderer   # renderer has its own lockfile
 
 cp .env.example .env            # add your Spotify Client ID/Secret
 npm run dev
 ```
 
-External tools needed: `ffmpeg`, `aubio`, `spotdl` (Python), `yt-dlp`.
+External tools needed for the desktop app (and `apps/api`'s worker, if you run your own): `ffmpeg`, `aubio`, `spotdl` (Python), `yt-dlp`. `apps/cli` needs none of these — it only talks HTTP to the public API.
 
 ---
 
