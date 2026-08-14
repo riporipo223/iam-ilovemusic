@@ -10,7 +10,8 @@
   },
   "workspaces": [
     "packages/*",
-    "apps/api"
+    "apps/api",
+    "apps/cli"
   ],
   "scripts": {
     "dev": "npm run build --workspace @ilovemusic/engine && concurrently \"npm run dev --prefix renderer\" \"electron .\"",
@@ -18,7 +19,7 @@
     "build:mac": "npm run build --workspace @ilovemusic/engine && npm run build --prefix renderer && node scripts/build-desktop.js --mac",
     "build:win": "npm run build --workspace @ilovemusic/engine && npm run build --prefix renderer && node scripts/build-desktop.js --win",
     "build:linux": "npm run build --workspace @ilovemusic/engine && npm run build --prefix renderer && node scripts/build-desktop.js --linux",
-    "test": "npm run test --workspace @ilovemusic/engine && npm run test --workspace @ilovemusic/api",
+    "test": "npm run test --workspace @ilovemusic/engine && npm run test --workspace @ilovemusic/api && npm run test --workspace @ilovemusic/cli",
     "verify:env": "node scripts/verify-env-loading.js",
     "verify:env:packaged": "node scripts/verify-env-loading.js --packaged"
   },
