@@ -10,6 +10,12 @@ CREATE TABLE IF NOT EXISTS api_keys (
     revoked_at  TIMESTAMPTZ
 );
 
+-- 'operator' = minted via scripts/create-api-key.ts (direct DB access, run by
+-- the platform operator). 'self_serve' = minted via the public, unauthenticated
+-- POST /v1/api-keys endpoint (see routes/apiKeys.ts) — kept distinct so a burst
+-- of abuse there can be bulk-revoked without touching operator-issued keys.
+ALTER TABLE api_keys ADD COLUMN IF NOT EXISTS created_via TEXT NOT NULL DEFAULT 'operator';
+
 -- BYOK: each API key owner brings their own Spotify Developer App credentials
 -- (see routes/spotifyCredentials.ts). client_secret is encrypted at rest
 -- (AES-256-GCM, see credentialsCrypto.ts) — never stored in plaintext.

@@ -61,6 +61,17 @@ export const config = {
     window: process.env.RATE_LIMIT_WINDOW ?? '1 minute',
   },
 
+  // POST /v1/api-keys is unauthenticated by necessity (it's how a caller gets
+  // their first key), so it can't be gated behind the per-key limit above.
+  // Deliberately strict and IP-scoped only — no email/captcha verification
+  // (see CHANGELOG for the reasoning) — the abuse ceiling this accepts is
+  // "someone burns their own download quota with a throwaway IP," not
+  // anything higher-value.
+  selfServeApiKeyRateLimit: {
+    max: Number(process.env.API_KEY_SELF_SERVE_RATE_LIMIT_MAX ?? 3),
+    window: process.env.API_KEY_SELF_SERVE_RATE_LIMIT_WINDOW ?? '1 day',
+  },
+
   // How long a presigned download URL for a finished job stays valid.
   downloadUrlTtlSeconds: Number(process.env.DOWNLOAD_URL_TTL_SECONDS ?? 3600),
 };

@@ -2,6 +2,7 @@ import Fastify from 'fastify';
 import rateLimit from '@fastify/rate-limit';
 import { config, assertRuntimeConfig } from './config';
 import { redisConnection } from './queue/connection';
+import { apiKeysRoutes } from './routes/apiKeys';
 import { downloadsRoutes } from './routes/downloads';
 import { healthRoutes } from './routes/health';
 import { spotifyCredentialsRoutes } from './routes/spotifyCredentials';
@@ -24,6 +25,7 @@ export function buildServer() {
   });
 
   app.register(healthRoutes);
+  app.register(apiKeysRoutes);
   app.register(downloadsRoutes);
   app.register(spotifyCredentialsRoutes);
   app.register(spotifyMetadataRoutes);
