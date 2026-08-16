@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.4] - 2026-08-16
+
+This release covers the new `@ilovemusic/cli` and its self-serve `POST /v1/api-keys` backend, a real engine-level Spotify fallback bugfix that also ships in this `.dmg`, production infrastructure fixes for the self-hosted API (spotdl/quickjs), and a GitBook documentation restructure. Grouped below, not by individual commit.
+
 ### 🖧 New: `@ilovemusic/cli`
 
 - **Added `apps/cli`, an interactive command-line client for the public API** — `ilovemusic create-api-key` and `ilovemusic download`, so a user never has to touch curl/HTTP/job-polling directly. Distribution: npm package first (no compiled binary yet — decided against `bun compile`/`deno compile` for a v1 given the added per-platform build pipeline and lack of a built-in update mechanism; may revisit if the Node.js requirement proves to be a real adoption barrier). Runs on macOS, Linux, and Windows, unlike the Electron desktop app.

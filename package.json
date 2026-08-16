@@ -1,6 +1,6 @@
 {
   "name": "ilovemusic-desktop",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "description": "ILoveMusic - SoundCloud & Spotify Music Downloader and Player with BPM Detection (Premium Quality - 320kbps)",
   "author": "CactusDomain",
   "main": "main.js",
