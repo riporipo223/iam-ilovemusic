@@ -75,7 +75,22 @@ export async function writeMetadataToFile(filePath: string, metadata: TrackMetad
     const ffmpegPath = resolveBinary('ffmpeg');
     const ffmpegArgs: string[] = [];
 
-    if (hasArtwork && (fileExt === '.m4a' || fileExt === '.mp4' || fileExt === '.aac')) {
+    // Confirmed via direct reproduction: ffmpeg's Ogg-family muxers (opus,
+    // ogg) reject a muxed-in video/attached-picture stream outright —
+    // "Unsupported codec id in stream 1" — unlike MP3/FLAC/M4A, which all
+    // support this exact -map/-disposition:v attached_pic approach. Ogg
+    // *can* carry cover art, but only via a base64 METADATA_BLOCK_PICTURE
+    // Vorbis comment, which ffmpeg has no simple flag for — not implemented
+    // here. Rather than let the whole write fail (and silently lose title/
+    // artist/bpm/key too, which is what was actually happening before this
+    // fix — processSpotifyTrack()'s catch around this call swallows the
+    // error), Ogg-family formats degrade to text-only tags when artwork is
+    // present, same "partial result, not a failure" principle already used
+    // for bpm/key detection elsewhere in this pipeline.
+    const oggFamily = fileExt === '.opus' || fileExt === '.ogg' || fileExt === '.oga';
+    const embedArtwork = hasArtwork && !oggFamily;
+
+    if (embedArtwork && (fileExt === '.m4a' || fileExt === '.mp4' || fileExt === '.aac')) {
       ffmpegArgs.push('-i', filePath, '-loop', '1', '-i', metadata.artworkPath!);
       ffmpegArgs.push('-map', '0:a', '-map', '1:v');
       ffmpegArgs.push('-c:a', 'copy', '-c:v', 'mjpeg');
@@ -89,7 +104,7 @@ export async function writeMetadataToFile(filePath: string, metadata: TrackMetad
       ffmpegArgs.push('-f', 'mp4', '-movflags', '+faststart', '-brand', 'M4A ');
     } else {
       ffmpegArgs.push('-i', filePath);
-      if (hasArtwork) {
+      if (embedArtwork) {
         ffmpegArgs.push('-i', metadata.artworkPath!);
         ffmpegArgs.push('-map', '0:a', '-map', '1');
         ffmpegArgs.push('-c:a', 'copy', '-c:v', 'copy');
@@ -111,6 +126,21 @@ export async function writeMetadataToFile(filePath: string, metadata: TrackMetad
         ffmpegArgs.push('-f', 'flac');
       } else if (fileExt === '.ogg' || fileExt === '.oga') {
         ffmpegArgs.push('-f', 'ogg');
+      } else if (fileExt === '.opus') {
+        // Without an explicit -f, ffmpeg can't infer the output container
+        // from the temp filename (it's "<name>.opus.tmp", not ".opus") and
+        // fails outright — confirmed via direct reproduction: "Unable to
+        // choose an output format ... use a standard extension for the
+        // filename or specify the format manually." That failure was being
+        // silently swallowed by processSpotifyTrack()'s catch around this
+        // call, so a track downloaded via yt-dlp's `-f bestaudio` path
+        // (opus is YouTube's typical adaptive-audio codec) would complete
+        // successfully but never actually get its title/artist/bpm/key
+        // tags written — the file just silently kept none. Same missing-
+        // case bug the existing .mp3/.flac/.ogg branches don't have.
+        ffmpegArgs.push('-f', 'opus');
+      } else if (fileExt === '.webm') {
+        ffmpegArgs.push('-f', 'webm');
       }
     }
 
