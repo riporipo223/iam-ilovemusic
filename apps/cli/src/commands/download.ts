@@ -8,6 +8,7 @@ import { parseFile } from 'music-metadata';
 import { createDownload, getJobStatus, registerSpotifyCredentials, ApiError, type JobStatus } from '../api.js';
 import { readConfig, writeConfig, type CliConfig } from '../config.js';
 import { sanitizeFilename } from '../util/sanitizeFilename.js';
+import { resultExtension } from '../util/resultExtension.js';
 
 const SOURCES = [
   { value: 'spotify', label: 'Spotify' },
@@ -227,12 +228,12 @@ function reportApiError(err: unknown): void {
 }
 
 /**
- * Streams the file to a temp path first, reads its embedded ID3 tags to name
- * it "artist - title.mp3" (the API's JSON response has no artist/title
- * field — packages/engine embeds that metadata into the file itself, not
- * into the job record), then moves it into place. Falls back to a
- * source-derived name when tags are missing, and avoids clobbering an
- * existing file of the same name.
+ * Streams the file to a temp path first, reads its embedded tags to name it
+ * "artist - title.<ext>" (the API's JSON response has no artist/title field
+ * — packages/engine embeds that metadata into the file itself, not into the
+ * job record), then moves it into place. Falls back to a source-derived
+ * name when tags are missing, and avoids clobbering an existing file of the
+ * same name.
  */
 async function downloadToLibrary(resultUrl: string): Promise<{ path: string; sizeBytes: number }> {
   const res = await fetch(resultUrl);
@@ -240,7 +241,9 @@ async function downloadToLibrary(resultUrl: string): Promise<{ path: string; siz
     throw new Error(`Failed to fetch the downloaded file (HTTP ${res.status})`);
   }
 
-  const tempPath = path.join(DOWNLOADS_DIR, `.tmp-${Date.now()}-${Math.random().toString(36).slice(2)}.mp3`);
+  const ext = resultExtension(resultUrl);
+
+  const tempPath = path.join(DOWNLOADS_DIR, `.tmp-${Date.now()}-${Math.random().toString(36).slice(2)}${ext}`);
   await pipeline(Readable.fromWeb(res.body as import('node:stream/web').ReadableStream<Uint8Array>), createWriteStream(tempPath));
 
   let baseName = 'ilovemusic-track';
@@ -254,17 +257,17 @@ async function downloadToLibrary(resultUrl: string): Promise<{ path: string; siz
     // Tags missing or unparseable — keep the generic fallback name.
   }
 
-  const finalPath = await uniqueDestination(sanitizeFilename(baseName));
+  const finalPath = await uniqueDestination(sanitizeFilename(baseName), ext);
   await fs.rename(tempPath, finalPath);
   const stat = await fs.stat(finalPath);
   return { path: finalPath, sizeBytes: stat.size };
 }
 
-async function uniqueDestination(baseName: string): Promise<string> {
-  let candidate = path.join(DOWNLOADS_DIR, `${baseName}.mp3`);
+async function uniqueDestination(baseName: string, ext: string): Promise<string> {
+  let candidate = path.join(DOWNLOADS_DIR, `${baseName}${ext}`);
   let attempt = 1;
   while (await fileExists(candidate)) {
-    candidate = path.join(DOWNLOADS_DIR, `${baseName} (${attempt}).mp3`);
+    candidate = path.join(DOWNLOADS_DIR, `${baseName} (${attempt})${ext}`);
     attempt++;
   }
   return candidate;
