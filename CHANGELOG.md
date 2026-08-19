@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 🧭 `apps/cli` — wrong filename even after the tag fix above
+
+- **Server-side tags were actually fine — the CLI itself was the last remaining bug.** After the `packages/engine` fix above, a real downloaded file was checked directly on R2: it genuinely had correct `title`/`artist`/`bpm`/`initialkey` tags. But the CLI still saved it as `ilovemusic-track (3).mp3`. Root cause: `downloadToLibrary()` always named its temp file with a hardcoded `.mp3` extension regardless of the real content, and confirmed via direct reproduction that `music-metadata` trusts a mismatched extension over the actual file content — it doesn't throw, it just silently returns empty tags, which is indistinguishable from a file that genuinely has none.
+  - Fixed by reading the real extension from the presigned result URL's own path (extracted into a small `resultExtension()` util) and using it for both the temp file and the final saved file — so an Opus track is honestly saved as `.opus`, not mislabeled `.mp3`.
+  - Verified against a real live job end-to-end, using the actual built CLI code, not a simulation: correctly produced `Sade - Pearls.opus`. 4 new tests.
+
 ### 🏷️ `packages/engine` — tracks losing all metadata tags
 
 - **Found while checking a real downloaded file: a Spotify track with no artist/title tags at all, so the CLI saved it as `ilovemusic-track.mp3` instead of a real name.** Root cause was two stacked bugs in `writeMetadataToFile()`, both only affecting `.opus`/`.ogg`/`.oga` files (i.e. anything that came through the YouTube-search fallback rather than spotdl's own `.mp3` output): (1) no `-f` flag for those extensions, so ffmpeg couldn't guess the output container from a `"<name>.opus.tmp"` filename and failed outright; (2) even after fixing that, a track with cover art still failed — ffmpeg's Ogg/Opus muxers reject an embedded picture stream the way MP3/FLAC/M4A allow. Both failures were silently swallowed by `processSpotifyTrack()`'s existing catch, so the job still reported success with zero tags written.
