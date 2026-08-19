@@ -1,5 +1,5 @@
 import * as p from '@clack/prompts';
-import { deleteSpotifyCredentials, ApiError } from '../api.js';
+import { deleteSpotifyCredentials } from '../api.js';
 import { readConfig, writeConfig } from '../config.js';
 
 /**
@@ -29,7 +29,7 @@ export async function runSpotifyLogout(): Promise<void> {
     // Deliberately don't clear the local flag on failure — it would then
     // claim "not registered" while the server still has them, which is the
     // exact drift this command exists to fix, not cause.
-    p.log.error(err instanceof ApiError ? err.message : String(err));
+    p.log.error(err instanceof Error ? err.message : String(err));
     process.exitCode = 1;
     return;
   }

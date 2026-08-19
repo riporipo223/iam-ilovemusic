@@ -197,12 +197,14 @@ async function ensureSpotifyCredentials(config: CliConfig): Promise<CliConfig | 
       await writeConfig(updated);
       return updated;
     } catch (err) {
-      s.stop('Spotify rejected these credentials.');
+      // Only actually "rejected" if the server was reached and responded —
+      // a connection failure never got that far, so don't claim it did.
+      s.stop(err instanceof ApiError ? 'Spotify rejected these credentials.' : 'Failed to register Spotify credentials.');
       // The server's message is shown verbatim — it already describes what
       // was wrong (bad pair, account not Premium, etc.) — never the secret
       // itself, which this catch block never has access to log even if it
       // wanted to.
-      p.log.error(err instanceof ApiError ? err.message : String(err));
+      p.log.error(err instanceof Error ? err.message : String(err));
 
       const retry = await p.confirm({ message: 'Try again?', initialValue: true });
       if (p.isCancel(retry) || !retry) {

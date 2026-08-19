@@ -14,6 +14,34 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * The request never reached the server at all — DNS failure, connection
+ * refused/reset, timeout, TLS handshake failure, etc. Distinct from
+ * ApiError, which means the server was reached and responded with an
+ * error status (bad credentials, rejected URL, ...). Node's fetch throws
+ * a bare "fetch failed" for this case with no user-facing context, so
+ * every fetch call in this file goes through apiFetch() below instead of
+ * calling fetch() directly, to turn that into something a non-developer
+ * can actually act on.
+ */
+export class NetworkError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'NetworkError';
+  }
+}
+
+const NETWORK_ERROR_MESSAGE =
+  "Couldn't reach the ILoveMusic server right now — this can happen briefly if the server just reconnected. Please try again in a few seconds.";
+
+async function apiFetch(url: string, init?: RequestInit): Promise<Response> {
+  try {
+    return await fetch(url, init);
+  } catch {
+    throw new NetworkError(NETWORK_ERROR_MESSAGE);
+  }
+}
+
 async function readErrorMessage(res: Response, fallback: string): Promise<string> {
   try {
     const body = (await res.json()) as { error?: string };
@@ -30,7 +58,7 @@ export interface CreateApiKeyResult {
 }
 
 export async function createApiKey(label?: string): Promise<CreateApiKeyResult> {
-  const res = await fetch(`${getBaseUrl()}/v1/api-keys`, {
+  const res = await apiFetch(`${getBaseUrl()}/v1/api-keys`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ label }),
@@ -47,7 +75,7 @@ export interface CreateDownloadResult {
 }
 
 export async function createDownload(apiKey: string, source: string, url: string): Promise<CreateDownloadResult> {
-  const res = await fetch(`${getBaseUrl()}/v1/downloads`, {
+  const res = await apiFetch(`${getBaseUrl()}/v1/downloads`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'X-API-Key': apiKey },
     body: JSON.stringify({ source, url }),
@@ -74,7 +102,7 @@ export async function registerSpotifyCredentials(
   clientId: string,
   clientSecret: string
 ): Promise<RegisterSpotifyCredentialsResult> {
-  const res = await fetch(`${getBaseUrl()}/v1/spotify-credentials`, {
+  const res = await apiFetch(`${getBaseUrl()}/v1/spotify-credentials`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json', 'X-API-Key': apiKey },
     body: JSON.stringify({ client_id: clientId, client_secret: clientSecret }),
@@ -86,7 +114,7 @@ export async function registerSpotifyCredentials(
 }
 
 export async function deleteSpotifyCredentials(apiKey: string): Promise<void> {
-  const res = await fetch(`${getBaseUrl()}/v1/spotify-credentials`, {
+  const res = await apiFetch(`${getBaseUrl()}/v1/spotify-credentials`, {
     method: 'DELETE',
     headers: { 'X-API-Key': apiKey },
   });
@@ -108,7 +136,7 @@ export interface JobStatus {
 }
 
 export async function getJobStatus(apiKey: string, jobId: string): Promise<JobStatus> {
-  const res = await fetch(`${getBaseUrl()}/v1/downloads/${jobId}`, {
+  const res = await apiFetch(`${getBaseUrl()}/v1/downloads/${jobId}`, {
     headers: { 'X-API-Key': apiKey },
   });
   if (!res.ok) {

@@ -6,6 +6,7 @@ import {
   registerSpotifyCredentials,
   deleteSpotifyCredentials,
   ApiError,
+  NetworkError,
   getBaseUrl,
 } from '../src/api';
 
@@ -119,6 +120,64 @@ describe('deleteSpotifyCredentials', () => {
       message: 'Invalid or revoked API key',
       status: 401,
     });
+  });
+});
+
+describe('network-level failures', () => {
+  // fetch() itself throwing (DNS failure, connection refused/reset, timeout)
+  // is a different failure mode than the server responding with an error
+  // status — it should surface as NetworkError with a plain-language
+  // message, never the raw "fetch failed" Node throws, and never mistaken
+  // for a real server rejection (ApiError).
+  it('wraps a raw fetch failure as a NetworkError with a friendly message, not the raw error', async () => {
+    fetchMock.mockRejectedValueOnce(new TypeError('fetch failed'));
+
+    let caught: unknown;
+    try {
+      await createApiKey();
+    } catch (err) {
+      caught = err;
+    }
+
+    expect(caught).toBeInstanceOf(NetworkError);
+    expect(caught).not.toBeInstanceOf(ApiError);
+  });
+
+  it('the NetworkError message never leaks the raw underlying error text', async () => {
+    fetchMock.mockRejectedValueOnce(new TypeError('fetch failed'));
+
+    try {
+      await createApiKey();
+      throw new Error('expected createApiKey to reject');
+    } catch (err) {
+      expect((err as Error).message).not.toContain('fetch failed');
+      expect((err as Error).message).toMatch(/couldn't reach the ilovemusic server/i);
+    }
+  });
+
+  it('applies the same NetworkError wrapping to every endpoint, not just createApiKey', async () => {
+    fetchMock.mockRejectedValueOnce(new Error('ECONNREFUSED'));
+    await expect(createDownload('ilm_key', 'soundcloud', 'https://soundcloud.com/a/b')).rejects.toBeInstanceOf(
+      NetworkError
+    );
+
+    fetchMock.mockRejectedValueOnce(new Error('ECONNREFUSED'));
+    await expect(getJobStatus('ilm_key', 'job-1')).rejects.toBeInstanceOf(NetworkError);
+  });
+
+  it('still throws a real ApiError, not a NetworkError, when the server actually responds', async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse(400, { error: 'Bandcamp album/playlist URLs are not yet supported' }));
+
+    let caught: unknown;
+    try {
+      await createDownload('ilm_key', 'bandcamp', 'https://x.bandcamp.com/album/y');
+    } catch (err) {
+      caught = err;
+    }
+
+    expect(caught).toBeInstanceOf(ApiError);
+    expect(caught).not.toBeInstanceOf(NetworkError);
+    expect((caught as Error).message).toBe('Bandcamp album/playlist URLs are not yet supported');
   });
 });
 
