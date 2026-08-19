@@ -137,3 +137,73 @@ describe('downloadAudioFromYouTubeSearch — zero-results detection', () => {
     await expect(downloadAudioFromYouTubeSearch('Sade No Ordinary Love', outputTemplate)).resolves.toBeUndefined();
   });
 });
+
+describe('downloadAudioFromYouTubeSearch — YouTube PO Token/SABR fallback', () => {
+  // Exact string confirmed via direct reproduction against a real blocked
+  // video (non-verbose yt-dlp, matching production's actual invocation) —
+  // see apps/api/src/worker.ts's clientFacingError() for the same pattern
+  // used server-side to give the API's caller a plain-language message.
+  const PO_TOKEN_403_ERROR = new Error(
+    'Command failed: /opt/homebrew/bin/yt-dlp -x -f bestaudio -o out.%(ext)s ytsearch1:query\nERROR: unable to download video data: HTTP Error 403: Forbidden'
+  );
+
+  function outputPathIn(outDir: string, stem: string) {
+    return path.join(outDir, `${stem}.%(ext)s`);
+  }
+
+  function writeFileOnNextCall(outDir: string, filename: string) {
+    execFileMock.mockImplementationOnce(async () => {
+      fs.writeFileSync(path.join(outDir, filename), 'fake audio bytes');
+      return { stdout: '', stderr: '' };
+    });
+  }
+
+  it('jumps straight to the alternate client when the *primary* attempt hits the confirmed 403 — skipping the pointless same-client retry', async () => {
+    const outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ilovemusic-po-token-test-'));
+
+    execFileMock.mockRejectedValueOnce(PO_TOKEN_403_ERROR); // primary (mp3) attempt
+    writeFileOnNextCall(outDir, 'job-3.opus'); // alternate-client attempt succeeds
+
+    await expect(downloadAudioFromYouTubeSearch('query', outputPathIn(outDir, 'job-3'))).resolves.toBeUndefined();
+
+    expect(execFileMock).toHaveBeenCalledTimes(2);
+    const alternateCallArgs = execFileMock.mock.calls[1][1] as string[];
+    expect(alternateCallArgs).toContain('--extractor-args');
+    expect(alternateCallArgs).toContain('youtube:player_client=web_embedded');
+  });
+
+  it('falls back to the alternate client when the *ffmpeg-triggered retry* also hits the confirmed 403', async () => {
+    const outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ilovemusic-po-token-test-'));
+
+    execFileMock.mockRejectedValueOnce(new Error('ffmpeg not found')); // primary attempt: ffmpeg-related failure
+    execFileMock.mockRejectedValueOnce(PO_TOKEN_403_ERROR); // -f bestaudio retry: hits the 403
+    writeFileOnNextCall(outDir, 'job-4.opus'); // alternate-client attempt succeeds
+
+    await expect(downloadAudioFromYouTubeSearch('query', outputPathIn(outDir, 'job-4'))).resolves.toBeUndefined();
+
+    expect(execFileMock).toHaveBeenCalledTimes(3);
+    const alternateCallArgs = execFileMock.mock.calls[2][1] as string[];
+    expect(alternateCallArgs).toContain('youtube:player_client=web_embedded');
+  });
+
+  it('still succeeds via the plain ffmpeg-triggered retry when it works — no alternate-client call at all (existing behavior unchanged)', async () => {
+    const outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ilovemusic-po-token-test-'));
+
+    execFileMock.mockRejectedValueOnce(new Error('ffmpeg not found'));
+    writeFileOnNextCall(outDir, 'job-5.opus');
+
+    await expect(downloadAudioFromYouTubeSearch('query', outputPathIn(outDir, 'job-5'))).resolves.toBeUndefined();
+
+    expect(execFileMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('still throws immediately for an unrelated error — no retries of any kind (existing behavior unchanged)', async () => {
+    const outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ilovemusic-po-token-test-'));
+    execFileMock.mockRejectedValueOnce(new Error('some unrelated failure'));
+
+    await expect(downloadAudioFromYouTubeSearch('query', outputPathIn(outDir, 'job-6'))).rejects.toThrow(
+      'some unrelated failure'
+    );
+    expect(execFileMock).toHaveBeenCalledTimes(1);
+  });
+});
