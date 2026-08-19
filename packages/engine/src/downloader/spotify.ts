@@ -203,11 +203,47 @@ export async function downloadAudioFromYouTubeSearch(
     searchUrl,
   ];
 
+  // Confirmed via direct reproduction against a real blocked video (non-
+  // verbose yt-dlp, matching this exact invocation): YouTube's PO Token/
+  // SABR streaming enforcement (yt-dlp#12482) produces exactly this string
+  // on the actual media fetch, after extraction already succeeded — see
+  // apps/api/src/worker.ts's clientFacingError() for where this same
+  // pattern is used to give the API's caller a plain-language message.
+  const YOUTUBE_VIDEO_DATA_403_PATTERN = /unable to download video data: HTTP Error 403: Forbidden/;
+
+  // web_embedded: yt-dlp's own standard, documented --extractor-args
+  // player_client selection — not any form of cookie/session-based PO
+  // Token mitigation (deliberately not implemented, see CHANGELOG).
+  // Confirmed via direct reproduction to succeed against the exact video
+  // that blocked every other client (including yt-dlp's own default
+  // selection, and explicitly trying quickjs/deno JS runtimes — this
+  // isn't a JS-challenge problem), and confirmed not to regress two
+  // already-working control tracks before adding it here. Only ever tried
+  // as a last resort for this specific, confirmed failure — not the
+  // default, since a small sample isn't enough evidence it's universally
+  // better than yt-dlp's own client selection for every video.
+  const alternateClientArgs = [
+    ...ytDlpJsRuntimeArgs(),
+    ...ffmpegLocationArgs,
+    '--extractor-args', 'youtube:player_client=web_embedded',
+    '-x',
+    '-f', 'bestaudio',
+    '-o', outputPath,
+    searchUrl,
+  ];
+
   try {
     await execFileAsync(ytDlpPath, downloadArgs, { timeout: 120000 });
   } catch (downloadError) {
     const message = (downloadError as Error).message || '';
-    if (message.includes('ffmpeg') || message.includes('ffprobe')) {
+    if (YOUTUBE_VIDEO_DATA_403_PATTERN.test(message)) {
+      // Confirmed via reproduction that retrying with a different *format*
+      // (the ffmpeg-triggered branch below) doesn't help here — the block
+      // is on the client, not the format, so this jumps straight to the
+      // client that's actually confirmed to work rather than wasting a
+      // retry known to fail identically.
+      await execFileAsync(ytDlpPath, alternateClientArgs, { timeout: 120000 });
+    } else if (message.includes('ffmpeg') || message.includes('ffprobe')) {
       // Note: -x (--extract-audio) here still needs an audio encoder for
       // most source formats, so this fallback doesn't actually avoid the
       // ffmpeg dependency — it's a distinct code path (no forced mp3
@@ -216,7 +252,16 @@ export async function downloadAudioFromYouTubeSearch(
       // reason as above, not because this branch is expected to need it
       // less.
       const originalArgs = [...ytDlpJsRuntimeArgs(), ...ffmpegLocationArgs, '-x', '-f', 'bestaudio', '-o', outputPath, searchUrl];
-      await execFileAsync(ytDlpPath, originalArgs, { timeout: 120000 });
+      try {
+        await execFileAsync(ytDlpPath, originalArgs, { timeout: 120000 });
+      } catch (retryError) {
+        const retryMessage = (retryError as Error).message || '';
+        if (YOUTUBE_VIDEO_DATA_403_PATTERN.test(retryMessage)) {
+          await execFileAsync(ytDlpPath, alternateClientArgs, { timeout: 120000 });
+        } else {
+          throw retryError;
+        }
+      }
     } else {
       throw downloadError;
     }
