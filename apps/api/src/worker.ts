@@ -76,6 +76,37 @@ async function markFailed(jobId: string, error: string) {
                      SELECT api_key_id, id, 'job_failed' FROM jobs WHERE id = $1`, [jobId]);
 }
 
+// Confirmed via direct reproduction against a real failing track (Spotify's
+// YouTube-search fallback, non-verbose yt-dlp invocation — the exact one
+// this worker runs, not a guess): a video-data-level 403 produces exactly
+// this string, distinct from a metadata/extraction-level failure. This is
+// YouTube's PO Token / SABR streaming enforcement (yt-dlp's own tracked
+// issue #12482) — a genuine, currently-unfixable platform limitation, not
+// a bug. Deliberately not implementing PO Token mitigation (would require
+// the operator's own YouTube account cookies — a security tradeoff not
+// worth it, same reasoning as Spotify's BYOK/proxy design). See CHANGELOG.
+const YOUTUBE_VIDEO_DATA_403_PATTERN = /unable to download video data: HTTP Error 403: Forbidden/;
+
+/**
+ * job.error is returned verbatim to every API consumer (GET
+ * /v1/downloads/:job_id — CLI, raw HTTP, anything else), so most errors
+ * should stay exactly as thrown: specific technical detail is more useful
+ * than a generic message (see the "No YouTube results found" fix in
+ * packages/engine). The one confirmed exception is the 403 case above,
+ * which a raw yt-dlp command line + Python deprecation warning gives a
+ * non-developer nothing actionable to do with. Scoped to `source ===
+ * 'spotify'` specifically — SoundCloud/Bandcamp's own yt-dlp calls can
+ * produce the same generic 403 message shape for an entirely different
+ * (their own platform's) reason, and mislabeling that as "YouTube" would
+ * be wrong, not just imprecise.
+ */
+export function clientFacingError(source: string, rawMessage: string): string {
+  if (source === 'spotify' && YOUTUBE_VIDEO_DATA_403_PATTERN.test(rawMessage)) {
+    return "This track couldn't be downloaded from YouTube right now due to platform restrictions. Try a different track, or try again later.";
+  }
+  return rawMessage;
+}
+
 async function processDownloadJob(job: Job<DownloadJobData>) {
   const { jobId, apiKeyId, source, url } = job.data;
 
@@ -143,7 +174,12 @@ async function processDownloadJob(job: Job<DownloadJobData>) {
     await uploadResultFile(track.filePath, resultKey);
     await markDone(jobId, resultKey, track.bpm, track.key);
   } catch (err) {
-    await markFailed(jobId, (err as Error).message ?? String(err));
+    const rawMessage = (err as Error).message ?? String(err);
+    // Only what's stored (and later returned via the API) is simplified —
+    // `err` itself is re-thrown unchanged below, so BullMQ's own failure
+    // logging (see worker.on('failed', ...) in startWorker's caller) still
+    // records the full raw message, same as before this change.
+    await markFailed(jobId, clientFacingError(source, rawMessage));
     throw err; // let BullMQ record the failure / retry per defaultJobOptions
   } finally {
     fs.rmSync(workDir, { recursive: true, force: true });
