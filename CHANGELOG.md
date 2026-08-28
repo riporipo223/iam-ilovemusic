@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 🗂️ Desktop app — "Crate" renamed to "Queue"
+
+- **The existing download basket/wishlist (`main.js`'s `crate:save`/`crate:load`, the renderer's slide-in panel) is now called "Queue" everywhere** — variables, IPC channels, UI copy, comments. Pure rename, no behavior change: prerequisite from `ILOVEMUSIC_PRODUCT_AUDIT.md` so "Crate" is free for the actual DJ-crate concept planned next. Existing users' saved data isn't lost — `queue:load` migrates a legacy `crate.json` to `queue.json` on first read if the new file doesn't exist yet.
+
+### 🗄️ Desktop app — SQLite migration groundwork (Phase 1, not yet cut over)
+
+- **Added `db/schema.sql` and `db/migrate-from-json.js`**, an idempotent, reversible one-way migration from the existing flat `tracks.json` into a new SQLite database (`better-sqlite3`), laying groundwork from `ILOVEMUSIC_IMPLEMENTATION_PLAN.md`'s Phase 1. The script only ever reads `tracks.json` — it never writes, moves, or deletes it — so rollback is just deleting the generated `.db` file.
+- Schema drops the base64 `artwork` blob (`artworkPath` is sufficient and always present), normalizes the literal `"—"` `key` placeholder to SQL `NULL`, drops transient `currentTime` UI state, and stores `fileSize` as a canonical `file_size_bytes` INTEGER instead of a pre-formatted string — presentation formatting is the UI layer's job, not the database's.
+- Verified against a full copy of real production data (all 35 tracks, all fields, plus explicit unicode/special-character byte-buffer checks) before running against the real `tracks.json`, and again against the real result afterward — both passed identically. Real `tracks.json`/`crate.json`/`albums.json` are unmodified and checksummed as such; the generated `.db` exists in parallel and is not yet read by the app.
+- Added `renderer/src/utils/formatFileSize.js`, the UI-layer counterpart that formats a raw byte count back to the app's existing `"4.5 MB"`-style display string, plus its first renderer unit tests (`renderer/test/`, new `vitest` setup) — cross-checked against real migrated byte counts. **Not yet wired into any UI**, and `main.js` has not been changed to read from SQLite — the app still runs exactly as before, reading/writing JSON. The cutover is a separate, deliberately deferred decision.
+
 ### 🧭 `apps/cli` — wrong filename even after the tag fix above
 
 - **Server-side tags were actually fine — the CLI itself was the last remaining bug.** After the `packages/engine` fix above, a real downloaded file was checked directly on R2: it genuinely had correct `title`/`artist`/`bpm`/`initialkey` tags. But the CLI still saved it as `ilovemusic-track (3).mp3`. Root cause: `downloadToLibrary()` always named its temp file with a hardcoded `.mp3` extension regardless of the real content, and confirmed via direct reproduction that `music-metadata` trusts a mismatched extension over the actual file content — it doesn't throw, it just silently returns empty tags, which is indistinguishable from a file that genuinely has none.
