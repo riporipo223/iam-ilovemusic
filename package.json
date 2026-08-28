@@ -32,6 +32,7 @@
     "@ilovemusic/engine": "*",
     "archiver": "^7.0.1",
     "archiver-utils": "^5.0.2",
+    "better-sqlite3": "^11.10.0",
     "dotenv": "^17.4.2",
     "music-metadata": "^11.10.3",
     "node-id3": "^0.2.9",
