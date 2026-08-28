@@ -262,10 +262,10 @@ const ILoveMusic = () => {
   const [albumProgress, setAlbumProgress] = useState({}); // { [albumId]: { ...progress, done } }
   const [albumTimes, setAlbumTimes] = useState({}); // { [trackId]: { currentTime, duration } } for inner shelf
 
-  /* ===== Crate (download wishlist) ===== */
-  const [crate, setCrate] = useState([]);
-  const [crateLoaded, setCrateLoaded] = useState(false);
-  const [crateOpen, setCrateOpen] = useState(false);
+  /* ===== Queue (download wishlist) ===== */
+  const [queue, setQueue] = useState([]);
+  const [queueLoaded, setQueueLoaded] = useState(false);
+  const [queueOpen, setQueueOpen] = useState(false);
 
   /* ===== New UI-only state (spatial shell) ===== */
   const [view, setView] = useState('library'); // library | playlists | collections | bpm | settings
@@ -374,28 +374,28 @@ const ILoveMusic = () => {
     window.electron.saveAlbums(toSave);
   }, [albums, albumsLoaded]);
 
-  // Load crate on mount.
+  // Load queue on mount.
   useEffect(() => {
     const load = async () => {
       try {
-        if (window.electron && window.electron.loadCrate) {
-          const result = await window.electron.loadCrate();
-          if (result.success && result.crate) setCrate(result.crate);
+        if (window.electron && window.electron.loadQueue) {
+          const result = await window.electron.loadQueue();
+          if (result.success && result.queue) setQueue(result.queue);
         }
       } catch (err) {
-        console.error('Error loading crate:', err);
+        console.error('Error loading queue:', err);
       } finally {
-        setCrateLoaded(true);
+        setQueueLoaded(true);
       }
     };
     load();
   }, []);
 
-  // Persist crate on change.
+  // Persist queue on change.
   useEffect(() => {
-    if (!crateLoaded) return;
-    if (window.electron && window.electron.saveCrate) window.electron.saveCrate(crate);
-  }, [crate, crateLoaded]);
+    if (!queueLoaded) return;
+    if (window.electron && window.electron.saveQueue) window.electron.saveQueue(queue);
+  }, [queue, queueLoaded]);
 
   // Album download IPC listeners (registered once for the app lifetime).
   useEffect(() => {
@@ -499,21 +499,21 @@ const ILoveMusic = () => {
     setDownloadOpen(false);
   };
 
-  /* ===== Crate helpers ===== */
-  const crateKeyFor = (track, sourceUrl) =>
+  /* ===== Queue helpers ===== */
+  const queueKeyFor = (track, sourceUrl) =>
     sourceUrl || track.sourceUrl || track.filePath || track.id || `${track.title}::${track.artist}`;
 
-  const isInCrate = (track, sourceUrl) => {
-    const key = crateKeyFor(track, sourceUrl);
-    return crate.some(c => c.id === key || (c.title === track.title && c.artist === track.artist));
+  const isInQueue = (track, sourceUrl) => {
+    const key = queueKeyFor(track, sourceUrl);
+    return queue.some(c => c.id === key || (c.title === track.title && c.artist === track.artist));
   };
 
-  const addToCrate = (track, sourceUrl, fromAlbum = null) => {
-    const id = crateKeyFor(track, sourceUrl);
-    console.log('[CRATE] add:', track && track.title, '→ id:', id); // TEMP diagnostic
-    setCrate(prev => {
+  const addToQueue = (track, sourceUrl, fromAlbum = null) => {
+    const id = queueKeyFor(track, sourceUrl);
+    console.log('[QUEUE] add:', track && track.title, '→ id:', id); // TEMP diagnostic
+    setQueue(prev => {
       if (prev.some(c => c.id === id || (c.title === track.title && c.artist === track.artist))) {
-        console.log('[CRATE] already present, skip'); // TEMP diagnostic
+        console.log('[QUEUE] already present, skip'); // TEMP diagnostic
         return prev;
       }
       const next = [
@@ -533,50 +533,50 @@ const ILoveMusic = () => {
           status: 'queued',
         },
       ];
-      console.log('[CRATE] new length:', next.length); // TEMP diagnostic
+      console.log('[QUEUE] new length:', next.length); // TEMP diagnostic
       return next;
     });
   };
 
-  const removeFromCrate = (id) => setCrate(prev => prev.filter(i => i.id !== id));
-  const setCrateItemStatus = (id, status) => setCrate(prev => prev.map(i => (i.id === id ? { ...i, status } : i)));
+  const removeFromQueue = (id) => setQueue(prev => prev.filter(i => i.id !== id));
+  const setQueueItemStatus = (id, status) => setQueue(prev => prev.map(i => (i.id === id ? { ...i, status } : i)));
 
-  // Crate downloads reuse the real single-track IPC (addSoundCloud routes
+  // Queue downloads reuse the real single-track IPC (addSoundCloud routes
   // SoundCloud/Bandcamp/Spotify by URL), then add + enrich into the library.
-  const handleCrateDownloadOne = async (item) => {
+  const handleQueueDownloadOne = async (item) => {
     if (!item.sourceUrl) {
-      setCrateItemStatus(item.id, 'error');
+      setQueueItemStatus(item.id, 'error');
       return;
     }
     if (!window.electron || !window.electron.addSoundCloud) return;
-    setCrateItemStatus(item.id, 'downloading');
+    setQueueItemStatus(item.id, 'downloading');
     try {
       const track = await window.electron.addSoundCloud(item.sourceUrl);
       setTracks(prev => [...prev, track]);
       enrichTrack(track);
-      setCrateItemStatus(item.id, 'done');
+      setQueueItemStatus(item.id, 'done');
     } catch (err) {
-      console.error('Crate download failed:', err);
-      setCrateItemStatus(item.id, 'error');
+      console.error('Queue download failed:', err);
+      setQueueItemStatus(item.id, 'error');
     }
   };
 
-  const handleCrateDownloadAll = async () => {
-    const queued = crate.filter(i => i.status === 'queued' && i.sourceUrl);
+  const handleQueueDownloadAll = async () => {
+    const queued = queue.filter(i => i.status === 'queued' && i.sourceUrl);
     for (const item of queued) {
       // eslint-disable-next-line no-await-in-loop
-      await handleCrateDownloadOne(item);
+      await handleQueueDownloadOne(item);
     }
   };
 
   const handleAlbumDownloadFull = (album) => {
     (album.tracks || []).forEach(track => {
-      if (!isInCrate(track, track.sourceUrl)) {
-        addToCrate(track, track.sourceUrl, { albumId: album.id, albumTitle: album.title });
+      if (!isInQueue(track, track.sourceUrl)) {
+        addToQueue(track, track.sourceUrl, { albumId: album.id, albumTitle: album.title });
       }
     });
     setOpenAlbum(null);
-    setCrateOpen(true);
+    setQueueOpen(true);
   };
 
   const handleAddSoundCloud = async () => {
@@ -1504,8 +1504,8 @@ const ILoveMusic = () => {
                     <div style={{ position: 'absolute', inset: 0, transform: 'translateY(8px) scale(0.97)', background: '#050506', borderRadius: '13px', boxShadow: '0 50px 90px rgba(0,0,0,0.7)' }} />
                     <div style={{ position: 'absolute', inset: 0, transform: 'translateY(4px) scale(0.985)', background: `color-mix(in srgb, ${c.frame} 55%, #000)`, borderRadius: '13px' }} />
                     <div style={{ position: 'absolute', inset: 0, borderRadius: '13px', overflow: 'hidden', background: c.frame, border: '1px solid rgba(255,255,255,0.12)', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.18)' }}>
-                      {!isAlbum && isInCrate(item, item.sourceUrl) && (
-                        <span title="In Crate" style={{ position: 'absolute', top: '8px', right: '8px', zIndex: 2, fontSize: '12px', background: 'rgba(0,0,0,0.6)', borderRadius: '4px', padding: '2px 4px', pointerEvents: 'none' }}>🗂</span>
+                      {!isAlbum && isInQueue(item, item.sourceUrl) && (
+                        <span title="In Queue" style={{ position: 'absolute', top: '8px', right: '8px', zIndex: 2, fontSize: '12px', background: 'rgba(0,0,0,0.6)', borderRadius: '4px', padding: '2px 4px', pointerEvents: 'none' }}>🗂</span>
                       )}
                       <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px', padding: '13px 18px 11px', color: c.ink }}>
                         <span style={{ fontWeight: 700, fontSize: '17px', letterSpacing: '-0.2px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.title}</span>
@@ -1794,12 +1794,12 @@ const ILoveMusic = () => {
                 onClick={() => toggleSelect(focused.id)}
                 style={{ flex: 1, border: 'none', cursor: 'pointer', fontFamily: 'inherit', fontSize: '12.5px', padding: '10px', borderRadius: '9px', background: isFocusedSelected ? ACCENT : 'rgba(255,255,255,0.05)', color: isFocusedSelected ? '#1a1407' : INK }}
               >
-                {isFocusedSelected ? 'In Crate ✓' : 'Add to Crate'}
+                {isFocusedSelected ? 'In Queue ✓' : 'Add to Queue'}
               </button>
               <button
                 onClick={handleDownload}
                 disabled={selected.size === 0 || downloading}
-                title={selected.size === 0 ? 'Add tracks to the crate first' : 'Download selected as ZIP'}
+                title={selected.size === 0 ? 'Add tracks to the queue first' : 'Download selected as ZIP'}
                 style={{ flex: 'none', border: `1px solid ${LINE}`, cursor: selected.size === 0 || downloading ? 'not-allowed' : 'pointer', padding: '10px 13px', borderRadius: '9px', background: 'transparent', color: selected.size === 0 ? FAINT : DIM, fontFamily: MONO, fontSize: '11px', opacity: downloading ? 0.6 : 1 }}
               >
                 ⇪ ZIP
@@ -1903,7 +1903,7 @@ const ILoveMusic = () => {
 
               <div style={{ marginTop: '22px' }}>
                 <div style={{ fontFamily: MONO, fontSize: '10px', letterSpacing: '1.5px', color: FAINT, marginBottom: '10px' }}>
-                  {downloading ? 'EXPORTING SELECTION' : `CRATE · ${selected.size} SELECTED`}
+                  {downloading ? 'EXPORTING SELECTION' : `QUEUE · ${selected.size} SELECTED`}
                 </div>
                 {downloading ? (
                   <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '10px 0', borderTop: `1px solid ${LINE}` }}>
@@ -1917,7 +1917,7 @@ const ILoveMusic = () => {
                   </div>
                 ) : (
                   <div style={{ fontFamily: MONO, fontSize: '11px', color: DIM, lineHeight: 1.6 }}>
-                    Select records on the shelf, then export the whole crate as a ZIP from here or the inspector.
+                    Select records on the shelf, then export the whole queue as a ZIP from here or the inspector.
                   </div>
                 )}
               </div>
@@ -2018,7 +2018,7 @@ const ILoveMusic = () => {
             {openAlbum.tracks && openAlbum.tracks.length ? (
               openAlbum.tracks.map((track, i) => {
                 const isPlaying = playingTrack === track.id;
-                const inCrate = isInCrate(track, track.sourceUrl);
+                const inQueue = isInQueue(track, track.sourceUrl);
                 return (
                   <div
                     key={track.id ?? i}
@@ -2034,7 +2034,7 @@ const ILoveMusic = () => {
                         <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '32px', color: 'rgba(255,255,255,0.2)' }}>♪</div>
                       )}
                     </div>
-                    {/* Metadata — title, artist, BPM/key/duration, + Crate */}
+                    {/* Metadata — title, artist, BPM/key/duration, + Queue */}
                     <div style={{ padding: '10px', display: 'flex', flexDirection: 'column', gap: '4px', flexShrink: 0 }}>
                       <span title={track.title} style={{ fontSize: '13px', fontWeight: 600, color: '#fff', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{track.title}</span>
                       <span title={track.artist} style={{ fontSize: '11px', color: 'rgba(255,255,255,0.5)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{track.artist}</span>
@@ -2044,10 +2044,10 @@ const ILoveMusic = () => {
                         <span>{track.duration ? formatTime(track.duration) : '—'}</span>
                       </div>
                       <button
-                        onClick={(e) => { e.stopPropagation(); addToCrate(track, track.sourceUrl, { albumId: openAlbum.id, albumTitle: openAlbum.title }); }}
-                        style={{ marginTop: '6px', padding: '5px 10px', borderRadius: '6px', fontSize: '11px', letterSpacing: '0.03em', border: `1px solid ${inCrate ? ACCENT : 'rgba(255,255,255,0.12)'}`, background: 'transparent', color: inCrate ? ACCENT : 'rgba(255,255,255,0.5)', cursor: 'pointer', alignSelf: 'flex-start', fontFamily: 'inherit' }}
+                        onClick={(e) => { e.stopPropagation(); addToQueue(track, track.sourceUrl, { albumId: openAlbum.id, albumTitle: openAlbum.title }); }}
+                        style={{ marginTop: '6px', padding: '5px 10px', borderRadius: '6px', fontSize: '11px', letterSpacing: '0.03em', border: `1px solid ${inQueue ? ACCENT : 'rgba(255,255,255,0.12)'}`, background: 'transparent', color: inQueue ? ACCENT : 'rgba(255,255,255,0.5)', cursor: 'pointer', alignSelf: 'flex-start', fontFamily: 'inherit' }}
                       >
-                        {inCrate ? '✓ In Crate' : '+ Crate'}
+                        {inQueue ? '✓ In Queue' : '+ Queue'}
                       </button>
                     </div>
                   </div>
@@ -2062,34 +2062,34 @@ const ILoveMusic = () => {
         </div>
       )}
 
-      {/* ===================== CRATE PANEL (right slide-in) =====================
-          Always mounted; slides in/out via transform so crate state is never
+      {/* ===================== QUEUE PANEL (right slide-in) =====================
+          Always mounted; slides in/out via transform so queue state is never
           lost to conditional unmount. */}
-      <div style={{ position: 'fixed', top: 0, right: 0, width: '360px', maxWidth: '90vw', height: '100vh', background: '#0d0d0d', borderLeft: `1px solid ${LINE}`, zIndex: 200, display: 'flex', flexDirection: 'column', overflow: 'hidden', transform: crateOpen ? 'translateX(0)' : 'translateX(100%)', transition: 'transform 0.22s ease', pointerEvents: crateOpen ? 'auto' : 'none', boxShadow: crateOpen ? '-20px 0 50px rgba(0,0,0,0.5)' : 'none' }}>
+      <div style={{ position: 'fixed', top: 0, right: 0, width: '360px', maxWidth: '90vw', height: '100vh', background: '#0d0d0d', borderLeft: `1px solid ${LINE}`, zIndex: 200, display: 'flex', flexDirection: 'column', overflow: 'hidden', transform: queueOpen ? 'translateX(0)' : 'translateX(100%)', transition: 'transform 0.22s ease', pointerEvents: queueOpen ? 'auto' : 'none', boxShadow: queueOpen ? '-20px 0 50px rgba(0,0,0,0.5)' : 'none' }}>
           <div style={{ padding: '20px', borderBottom: `1px solid ${LINE}`, display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <span style={{ fontFamily: MONO, fontSize: '12px', letterSpacing: '1.6px', color: INK }}>CRATE</span>
+            <span style={{ fontFamily: MONO, fontSize: '12px', letterSpacing: '1.6px', color: INK }}>QUEUE</span>
             <span style={{ fontFamily: MONO, fontSize: '10px', color: DIM }}>
-              {crate.filter(i => i.status === 'queued').length} queued · {crate.filter(i => i.status === 'done').length} downloaded
+              {queue.filter(i => i.status === 'queued').length} queued · {queue.filter(i => i.status === 'done').length} downloaded
             </span>
-            <button onClick={() => setCrateOpen(false)} style={{ marginLeft: 'auto', border: 'none', background: 'rgba(255,255,255,0.05)', color: DIM, width: '28px', height: '28px', borderRadius: '8px', cursor: 'pointer' }}>✕</button>
+            <button onClick={() => setQueueOpen(false)} style={{ marginLeft: 'auto', border: 'none', background: 'rgba(255,255,255,0.05)', color: DIM, width: '28px', height: '28px', borderRadius: '8px', cursor: 'pointer' }}>✕</button>
           </div>
 
-          {crate.some(i => i.status === 'queued') && (
+          {queue.some(i => i.status === 'queued') && (
             <button
-              onClick={handleCrateDownloadAll}
+              onClick={handleQueueDownloadAll}
               style={{ margin: '12px 16px', padding: '12px', background: ACCENT, color: '#1a1407', border: 'none', borderRadius: '8px', fontWeight: 700, fontSize: '13px', cursor: 'pointer', letterSpacing: '0.05em' }}
             >
-              ↓ Download All ({crate.filter(i => i.status === 'queued').length})
+              ↓ Download All ({queue.filter(i => i.status === 'queued').length})
             </button>
           )}
 
           <div style={{ flex: 1, overflowY: 'auto', padding: '8px' }}>
-            {crate.length === 0 && (
+            {queue.length === 0 && (
               <div style={{ padding: '40px 20px', color: DIM, fontSize: '12px', textAlign: 'center', fontFamily: MONO, lineHeight: 1.6 }}>
                 Add tracks from the shelf or album view
               </div>
             )}
-            {crate.map(item => (
+            {queue.map(item => (
               <div key={item.id} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px', borderRadius: '8px', marginBottom: '4px', background: 'rgba(255,255,255,0.03)' }}>
                 <div style={{ width: '44px', height: '44px', borderRadius: '6px', overflow: 'hidden', flexShrink: 0, background: '#1a1a1a', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                   {item.artwork
@@ -2109,13 +2109,13 @@ const ILoveMusic = () => {
                   {item.status === 'queued' && (
                     <>
                       <button
-                        onClick={() => handleCrateDownloadOne(item)}
+                        onClick={() => handleQueueDownloadOne(item)}
                         disabled={!item.sourceUrl}
                         title={item.sourceUrl ? 'Download' : 'No source URL to download from'}
                         style={{ width: '26px', height: '26px', border: `1px solid ${LINE}`, borderRadius: '6px', background: 'transparent', color: INK, cursor: item.sourceUrl ? 'pointer' : 'not-allowed', opacity: item.sourceUrl ? 1 : 0.4 }}
                       >↓</button>
                       <button
-                        onClick={() => removeFromCrate(item.id)}
+                        onClick={() => removeFromQueue(item.id)}
                         style={{ width: '26px', height: '26px', border: `1px solid ${LINE}`, borderRadius: '6px', background: 'transparent', color: '#e87a7a', cursor: 'pointer' }}
                       >✕</button>
                     </>

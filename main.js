@@ -2402,7 +2402,7 @@ async function buildAlbumTracksFromFolder(dir, source, sourceUrls = []) {
       key: null,
       artwork,
       source,
-      sourceUrl: sourceUrls[i] || null, // original URL, for re-download via the crate
+      sourceUrl: sourceUrls[i] || null, // original URL, for re-download via the queue
     });
   }
   return tracks;
@@ -2426,7 +2426,7 @@ ipcMain.handle('download-sc-bandcamp-album', async (event, { url, source } = {})
       console.warn('Album metadata fetch failed:', e.message);
     }
     const entries = Array.isArray(info.entries) ? info.entries : [];
-    const entryUrls = entries.map(e => e.url || e.webpage_url || null); // per-track URLs (for crate re-download)
+    const entryUrls = entries.map(e => e.url || e.webpage_url || null); // per-track URLs (for queue re-download)
     const albumMeta = {
       id: albumId,
       title: info.title || 'Unknown Album',
@@ -2548,7 +2548,7 @@ ipcMain.handle('download-spotify-album', async (event, albumUrl) => {
     }
 
     // Build real track objects from the downloaded files. Spotify track URLs
-    // (in download order) become each track's sourceUrl for crate re-download.
+    // (in download order) become each track's sourceUrl for queue re-download.
     const spotifyUrls = allTracks.map(t => (t.id ? `https://open.spotify.com/track/${t.id}` : null));
     const tracks = await buildAlbumTracksFromFolder(outputDir, 'spotify', spotifyUrls);
     const artwork = albumMeta.artwork || (tracks.find(t => t.artwork) || {}).artwork || null;
@@ -2593,29 +2593,40 @@ ipcMain.handle('show-in-finder', (_, filePath) => {
   if (filePath) shell.showItemInFolder(filePath);
 });
 
-// Persist the crate (download wishlist) — mirror of albums:save / albums:load.
-ipcMain.handle('crate:save', async (_, crate) => {
+// Persist the queue (download wishlist) — mirror of albums:save / albums:load.
+ipcMain.handle('queue:save', async (_, queue) => {
   try {
     const userDataPath = app.getPath('userData');
-    const crateFilePath = path.join(userDataPath, 'crate.json');
+    const queueFilePath = path.join(userDataPath, 'queue.json');
     if (!fs.existsSync(userDataPath)) fs.mkdirSync(userDataPath, { recursive: true });
-    fs.writeFileSync(crateFilePath, JSON.stringify(crate, null, 2), 'utf8');
+    fs.writeFileSync(queueFilePath, JSON.stringify(queue, null, 2), 'utf8');
     return { success: true };
   } catch (error) {
-    console.error('Error saving crate:', error);
+    console.error('Error saving queue:', error);
     return { success: false, error: error.message };
   }
 });
 
-ipcMain.handle('crate:load', async () => {
+ipcMain.handle('queue:load', async () => {
   try {
     const userDataPath = app.getPath('userData');
-    const crateFilePath = path.join(userDataPath, 'crate.json');
-    if (!fs.existsSync(crateFilePath)) return { success: true, crate: [] };
-    const crate = JSON.parse(fs.readFileSync(crateFilePath, 'utf8'));
-    return { success: true, crate };
+    const queueFilePath = path.join(userDataPath, 'queue.json');
+    // One-time migration: this file was named crate.json before "crate" was
+    // renamed to "queue" (the on-disk name existed as far back as any
+    // installed build, so existing users' data lives there, not under the
+    // new name). If queue.json doesn't exist yet but the old file does,
+    // move it over before reading — otherwise a real user's saved queue
+    // would silently appear empty after updating, which is a data loss bug,
+    // not a rename.
+    const legacyQueueFilePath = path.join(userDataPath, 'crate.json');
+    if (!fs.existsSync(queueFilePath) && fs.existsSync(legacyQueueFilePath)) {
+      fs.renameSync(legacyQueueFilePath, queueFilePath);
+    }
+    if (!fs.existsSync(queueFilePath)) return { success: true, queue: [] };
+    const queue = JSON.parse(fs.readFileSync(queueFilePath, 'utf8'));
+    return { success: true, queue };
   } catch (error) {
-    console.error('Error loading crate:', error);
-    return { success: true, crate: [] };
+    console.error('Error loading queue:', error);
+    return { success: true, queue: [] };
   }
 });
