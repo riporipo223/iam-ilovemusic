@@ -41,8 +41,8 @@
 # for the full walkthrough, including the free *.trycloudflare.com option
 # if you don't have a domain on Cloudflare yet and just want to test now.
 
-tunnel: 219cb51d-7f8e-4ae0-b8f3-42394bb102ae
-credentials-file: /Users/ripo/.cloudflared/219cb51d-7f8e-4ae0-b8f3-42394bb102ae.json
+tunnel: 4503d488-c1e9-41b8-b087-7935d390a1e1
+credentials-file: /Users/ripo/.cloudflared/4503d488-c1e9-41b8-b087-7935d390a1e1.json
 
 ingress:
   # The one and only service this tunnel exposes. Change the hostname to
