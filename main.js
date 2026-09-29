@@ -1,10 +1,87 @@
-const { app, BrowserWindow, ipcMain, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, shell, protocol, net } = require('electron');
 const path = require('path');
+const { pathToFileURL } = require('url');
 const { execFile, spawn } = require('child_process');
 const fs = require('fs');
 const crypto = require('crypto');
 const { promisify } = require('util');
 const execFileAsync = promisify(execFile);
+const { SCHEME: MEDIA_SCHEME, toMediaUrl, resolveMediaRequestPath } = require('./mediaProtocol');
+
+// Phase 1.5 (ILOVEMUSIC_IMPLEMENTATION_PLAN.md): local audio playback used to
+// hand the renderer raw file://${track.filePath} URLs, which only worked
+// because webSecurity was set to false below — disabling the renderer's
+// same-origin policy entirely, for everything, not just local playback.
+// ilovemusic-media:// replaces that: a custom protocol whose handler (see
+// registerMediaProtocol, called from app.whenReady()) only ever serves files
+// that resolve inside MEDIA_ROOT. Every track/album download in this file
+// already saves under app.getPath('userData')/tracks/ (confirmed via every
+// outputDir assignment in this file before this change) — that directory is
+// the actual, and only, legitimate root.
+const MEDIA_ROOT = path.join(app.getPath('userData'), 'tracks');
+
+// Must run before the app's 'ready' event fires — Electron requires
+// privileged custom schemes to be registered at module load time, not inside
+// a whenReady() callback.
+protocol.registerSchemesAsPrivileged([
+  {
+    scheme: MEDIA_SCHEME,
+    privileges: {
+      standard: true,
+      secure: true,
+      supportFetchAPI: true,
+      corsEnabled: true,
+      stream: true, // needed for <audio> seek/range requests against local files
+    },
+  },
+]);
+
+// Registers the actual request handler. Must run after the app is ready
+// (protocol.handle needs an initialized protocol module), so this is called
+// from app.whenReady() below, not at module load time like the privileged-
+// scheme registration above.
+function registerMediaProtocol() {
+  protocol.handle(MEDIA_SCHEME, async (request) => {
+    const filePath = resolveMediaRequestPath(MEDIA_ROOT, request.url);
+    if (!filePath) {
+      console.warn('[media-protocol] refused a request outside the tracks directory:', request.url);
+      return new Response('Forbidden', { status: 403 });
+    }
+    try {
+      // net.fetch on a file:// URL, issued from the trusted main process
+      // (not the renderer), is Electron's own documented pattern for
+      // protocol.handle file-serving — it also gets range-request/seek
+      // support for free, matching what raw <audio src="file://..."> gave
+      // us before.
+      return await net.fetch(pathToFileURL(filePath).toString());
+    } catch (e) {
+      console.error('[media-protocol] failed to serve', filePath, e);
+      return new Response('Not Found', { status: 404 });
+    }
+  });
+}
+
+// One-time migration for tracks saved to tracks.json/albums.json before this
+// change: their `url` field is still a raw file://${filePath} string, which
+// webSecurity:true now refuses to load (confirmed live — every pre-existing
+// track failed with "Not allowed to load local resource" until this was
+// added). New tracks already get the right URL from toMediaUrl() at download
+// time; this rewrites the ones already on disk the same way, on the next
+// load. Returns a new object; never mutates the input in place.
+function migrateLegacyFileUrl(track) {
+  if (!track || typeof track.url !== 'string' || !track.url.startsWith('file://') || !track.filePath) {
+    return track;
+  }
+  try {
+    return { ...track, url: toMediaUrl(MEDIA_ROOT, track.filePath) };
+  } catch (e) {
+    // filePath resolves outside MEDIA_ROOT — shouldn't happen (see MEDIA_ROOT
+    // comment above), but leave the track as-is rather than crash a load over
+    // one bad entry; it'll just fail to play, same as it already would have.
+    console.warn('[media-protocol] could not migrate legacy file:// url for', track.filePath, e.message);
+    return track;
+  }
+}
 
 // Load environment variables from .env file.
 //
@@ -753,9 +830,9 @@ async function fetchSpotifyMetadataViaProxy(spotifyUrl) {
 /**
  * Process a Spotify track URL end-to-end via the shared engine package
  * (packages/engine). Desktop-specific concerns (userData paths, IPC progress
- * events, the file:// URL the renderer expects) stay here; the actual
- * download/BPM/key/metadata pipeline lives in the engine so the API server
- * can reuse it verbatim.
+ * events, the ilovemusic-media:// URL the renderer expects) stay here; the
+ * actual download/BPM/key/metadata pipeline lives in the engine so the API
+ * server can reuse it verbatim.
  */
 async function processSpotifyTrack(url) {
   const outputDir = path.join(app.getPath('userData'), 'tracks');
@@ -779,7 +856,7 @@ async function processSpotifyTrack(url) {
     artist: track.artist,
     duration: track.duration,
     currentTime: 0,
-    url: `file://${track.filePath}`,
+    url: toMediaUrl(MEDIA_ROOT, track.filePath),
     filePath: track.filePath,
     bpm: track.bpm,
     key: track.key,
@@ -822,7 +899,12 @@ function createWindow() {
     trafficLightPosition: { x: 15, y: 15 },
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
-      webSecurity: false,
+      // webSecurity is no longer disabled — Phase 1.5 replaced raw
+      // file://${track.filePath} playback URLs with the ilovemusic-media://
+      // custom protocol (see registerMediaProtocol above), which is what
+      // needed webSecurity off in the first place. Default is true; left
+      // implicit rather than writing `webSecurity: true` so a future find-
+      // and-replace can't silently reintroduce `: false` here unnoticed.
       nodeIntegration: false,
       contextIsolation: true
     }
@@ -960,7 +1042,10 @@ function createWindow() {
   mainWindow = win;
 }
 
-app.whenReady().then(createWindow);
+app.whenReady().then(() => {
+  registerMediaProtocol();
+  createWindow();
+});
 
 // Helper function to get yt-dlp path
 function getYtDlpPath() {
@@ -1269,7 +1354,8 @@ ipcMain.handle('soundcloud:add', async (_, url) => {
     
     const filePath = path.join(outputDir, downloadedFile);
 
-    // Gunakan path absolut dengan file:// protocol
+    // Absolute path, used both for filesystem ops below and as the input to
+    // toMediaUrl() (ilovemusic-media://, not a raw file:// URL — see Phase 1.5)
     const trackId = Date.now();
     const absolutePath = path.resolve(filePath);
     
@@ -1675,7 +1761,7 @@ ipcMain.handle('soundcloud:add', async (_, url) => {
       artist: info.uploader || info.channel || 'Unknown Artist',
       duration: info.duration || 0,
         currentTime: 0,
-      url: `file://${absolutePath}`,
+      url: toMediaUrl(MEDIA_ROOT, absolutePath),
       filePath: absolutePath,
       bpm: bpm || null,
       key: key || null,
@@ -2342,9 +2428,15 @@ ipcMain.handle('tracks:load', async () => {
     
     // Read and parse tracks from file
     const fileContent = fs.readFileSync(tracksFilePath, 'utf8');
-    const tracks = JSON.parse(fileContent);
-    console.log('Tracks loaded from:', tracksFilePath, 'Count:', tracks.length);
-    
+    const rawTracks = JSON.parse(fileContent);
+    console.log('Tracks loaded from:', tracksFilePath, 'Count:', rawTracks.length);
+
+    const tracks = rawTracks.map(migrateLegacyFileUrl);
+    if (tracks.some((t, i) => t !== rawTracks[i])) {
+      fs.writeFileSync(tracksFilePath, JSON.stringify(tracks, null, 2), 'utf8');
+      console.log('Migrated legacy file:// urls to ilovemusic-media:// in tracks.json');
+    }
+
     return { success: true, tracks: tracks };
   } catch (error) {
     console.error('Error loading tracks:', error);
@@ -2396,7 +2488,7 @@ async function buildAlbumTracksFromFolder(dir, source, sourceUrls = []) {
       artist,
       duration,
       currentTime: 0,
-      url: `file://${filePath}`,
+      url: toMediaUrl(MEDIA_ROOT, filePath),
       filePath,
       bpm: null,
       key: null,
@@ -2580,7 +2672,16 @@ ipcMain.handle('albums:load', async () => {
     const userDataPath = app.getPath('userData');
     const albumsFilePath = path.join(userDataPath, 'albums.json');
     if (!fs.existsSync(albumsFilePath)) return { success: true, albums: [] };
-    const albums = JSON.parse(fs.readFileSync(albumsFilePath, 'utf8'));
+    const rawAlbums = JSON.parse(fs.readFileSync(albumsFilePath, 'utf8'));
+
+    const albums = rawAlbums.map(album =>
+      Array.isArray(album.tracks) ? { ...album, tracks: album.tracks.map(migrateLegacyFileUrl) } : album
+    );
+    if (albums.some((a, i) => a !== rawAlbums[i])) {
+      fs.writeFileSync(albumsFilePath, JSON.stringify(albums, null, 2), 'utf8');
+      console.log('Migrated legacy file:// urls to ilovemusic-media:// in albums.json');
+    }
+
     return { success: true, albums };
   } catch (error) {
     console.error('Error loading albums:', error);
