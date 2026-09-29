@@ -26,11 +26,11 @@
   <key>ProgramArguments</key>
   <array>
     <string>/Users/ripo/Library/Application Support/Herd/config/nvm/versions/node/v22.0.0/bin/node</string>
-    <string>/Users/ripo/2. PROJECT/ILoveMusic/apps/api/dist/worker.js</string>
+    <string>/Users/ripo/MAIN PROJECT/ILoveMusic/apps/api/dist/worker.js</string>
   </array>
 
   <key>WorkingDirectory</key>
-  <string>/Users/ripo/2. PROJECT/ILoveMusic/apps/api</string>
+  <string>/Users/ripo/MAIN PROJECT/ILoveMusic/apps/api</string>
 
   <key>RunAtLoad</key>
   <true/>

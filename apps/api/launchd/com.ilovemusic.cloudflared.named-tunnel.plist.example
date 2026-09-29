@@ -43,7 +43,7 @@
     <string>/opt/homebrew/bin/cloudflared</string>
     <string>tunnel</string>
     <string>--config</string>
-    <string>/Users/ripo/2. PROJECT/ILoveMusic/apps/api/cloudflared/config.named-tunnel.yml.example</string>
+    <string>/Users/ripo/MAIN PROJECT/ILoveMusic/apps/api/cloudflared/config.named-tunnel.yml.example</string>
     <string>run</string>
   </array>
 

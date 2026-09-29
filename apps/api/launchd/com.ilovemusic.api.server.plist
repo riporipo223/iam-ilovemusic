@@ -37,7 +37,7 @@
   <key>ProgramArguments</key>
   <array>
     <string>/Users/ripo/Library/Application Support/Herd/config/nvm/versions/node/v22.0.0/bin/node</string>
-    <string>/Users/ripo/2. PROJECT/ILoveMusic/apps/api/dist/server.js</string>
+    <string>/Users/ripo/MAIN PROJECT/ILoveMusic/apps/api/dist/server.js</string>
   </array>
 
   <!-- dotenv (loaded in src/config.ts) reads .env relative to the process's
@@ -45,7 +45,7 @@
        the one with your real local Postgres/Redis/R2/CREDENTIALS_ENCRYPTION_KEY
        values (never committed — see apps/api/.env.example for what's needed). -->
   <key>WorkingDirectory</key>
-  <string>/Users/ripo/2. PROJECT/ILoveMusic/apps/api</string>
+  <string>/Users/ripo/MAIN PROJECT/ILoveMusic/apps/api</string>
 
   <key>RunAtLoad</key>
   <true/>
